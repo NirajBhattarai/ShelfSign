@@ -2,25 +2,25 @@
 
 **Camera-backed stock, signed from the silicon — attested with a live nonce.**
 
-ETHOnline 2026 project idea. Real itch from Fix My Itch (Razorpay): *“Why can't shops see real-time supplier stock levels?”*
+Warehouses publish live inventory from enrolled cameras. Each attestation is bound to the camera’s CMOS sensor fingerprint and a fresh server-issued nonce, so buyers see stock that is hard to fake or replay.
 
 ---
 
 ## Problem
 
-Shops and buyers can’t see real supplier inventory. Spreadsheets and WhatsApp updates are easy to fake or go stale. Trust breaks before the order is placed.
+Buyers cannot reliably see real supplier inventory. Spreadsheets and chat updates go stale or get fabricated. Trust breaks before an order is placed.
 
 ## Solution
 
-1. Put a camera in the warehouse aisle.  
-2. Derive a **camera account identity** from the CMOS sensor’s manufacturing impurity fingerprint (PRNU / silicon noise pattern) — unique per physical sensor.  
-3. Challenge the warehouse with an **attestable nonce**.  
-4. Capture a live frame bound to that nonce; verify it matches the enrolled CMOS fingerprint.  
-5. Run vision (YOLO / PyTorch) → stock counts.  
-6. Publish a **signed stock attestation** (image hash + CMOS account + nonce + counts).  
-7. Buyers / agents pay per query (**x402**). Optional USDC bond: lying stays expensive.
+1. Put a camera in the warehouse aisle.
+2. Derive a **camera account identity** from the CMOS sensor’s manufacturing impurity fingerprint (PRNU / silicon noise pattern) — unique per physical sensor.
+3. Challenge the warehouse with an **attestable nonce**.
+4. Capture a live frame bound to that nonce; verify it matches the enrolled CMOS fingerprint.
+5. Run vision (YOLO / PyTorch) → stock counts.
+6. Publish a **signed stock attestation** (image hash + CMOS account + nonce + counts).
+7. Buyers browse attested stock and place buy orders. Pay-per-query access (**x402**) and optional USDC bonding are planned.
 
-**Tagline:** Live stock from *this* camera, *right now* — silicon identity + nonce, not a spreadsheet.
+**Tagline:** Live stock from _this_ camera, _right now_ — silicon identity + nonce, not a spreadsheet.
 
 ---
 
@@ -30,11 +30,11 @@ Shops and buyers can’t see real supplier inventory. Spreadsheets and WhatsApp 
 
 Every CMOS image sensor has a stable, device-unique noise pattern from manufacturing impurities. That fingerprint becomes the **camera’s account identity**:
 
-- **Enroll once:** capture calibration frames → extract impurity / PRNU template → bind to on-chain camera account (or derive key material / attestation identity from it).  
-- **Later frames:** extract residual fingerprint → must match enrolled template.  
+- **Enroll once:** capture calibration frames → extract impurity / PRNU template → bind to camera account.
+- **Later frames:** extract residual fingerprint → must match enrolled template.
 - Wrong camera, phone photo, or swapped device → **fail**.
 
-This is the hardware root: *the signature is tied to the physical sensor, not just a software key sitting on a laptop.*
+The hardware root: _the signature is tied to the physical sensor, not just a software key on a laptop._
 
 ### Attestable nonce → prove the warehouse is live
 
@@ -53,7 +53,7 @@ ShelfSign server          Warehouse agent + camera
       |         CMOS match           |
       |         image hash           |
       |         signature            |
-      | publish on-chain             |
+      | publish                       |
 ```
 
 If the warehouse can’t return a fingerprint-matching frame for the **current nonce** → treat as offline / no live data.
@@ -77,24 +77,96 @@ Attestation: stock + imageHash + cameraAccount + nonce + modelHash
        ↓
 Sign (camera-bound account / supplier key)
        ↓
-Image → IPFS    |    Attestation → Hedera HCS / Arc
+Image → IPFS    |    Attestation → Hedera HCS / Arc (planned)
        ↓
-Buyer / agent pays x402 → GET attested stock
+Buyer browses attested stock → places buy order
 ```
 
 ### Anti-fake layers
 
-| Layer | Stops |
-|--------|--------|
+| Layer                               | Stops                                                |
+| ----------------------------------- | ---------------------------------------------------- |
 | CMOS impurity fingerprint → account | Phone uploads, swapped cameras, generic stock photos |
-| Attestable nonce | Replay of old “full shelf” videos |
-| Image hash on-chain | Editing the photo after the fact |
-| Signature | Random third-party forgery |
-| Model hash | Silent detector swap |
-| USDC bond + slash | Cheap lying about staged aisles |
+| Attestable nonce                    | Replay of old “full shelf” videos                    |
+| Image hash on-chain                 | Editing the photo after the fact                     |
+| Signature                           | Random third-party forgery                           |
+| Model hash                          | Silent detector swap                                 |
+| USDC bond + slash (planned)         | Cheap lying about staged aisles                      |
 
-Pitch: **silicon-bound, nonce-fresh, slashable attestations.**  
-A supplier can still stage the real aisle before the shot — bond + dispute covers that. Camera physics stops *remote* faking and replay.
+A supplier can still stage the real aisle before the shot — bond + dispute covers that once shipping. Camera physics stops _remote_ faking and replay.
+
+---
+
+## Progress tracker
+
+Checkboxes mark what is done in the repo today. Unchecked items are still open.
+
+### Platform & auth
+
+- [x] Supabase schema + RLS (`supabase/migrations/`)
+- [x] Signup / login (supplier & buyer roles)
+- [x] Role-based routing (`/supplier` · `/buyer`)
+- [x] Demo account seeding (`npm run seed:demo`)
+- [x] Responsive UI (desktop / tablet / mobile)
+
+### Supplier
+
+- [x] Dashboard overview (order + warehouse KPIs)
+- [x] Warehouses — create, categories, photo
+- [x] Cameras — register, enrollment status, live stream
+- [x] Incoming orders — list, filter, search
+- [x] Order detail — confirm / fulfill / cancel + status progress
+- [ ] Local warehouse agent (credentials stay on LAN)
+- [ ] Full CMOS enroll + match against live frames in production flow
+
+### Buyer
+
+- [x] Home — purchasing KPIs + recent orders / stock
+- [x] Stock catalog — search, filters, sort, product grid
+- [x] Stock detail — attestation provenance + place order
+- [x] Orders — list, status filters, search
+- [x] Order detail — status timeline (Placed → Confirmed → Fulfilled)
+- [x] Profile (read-only)
+- [ ] Cart / multi-line checkout
+- [ ] Pricing, taxes, shipping
+- [ ] Buyer delivery addresses
+- [ ] Carrier tracking / ETA
+- [ ] Reorder / notifications / profile edit
+
+### Trust pipeline
+
+- [x] Nonce challenge API
+- [x] Attestation ingest + public read
+- [x] Warehouse browse + stock by attestation
+- [x] Buy orders linked to attestation (optional)
+- [x] Vision service — YOLO stock detection (FastAPI)
+- [x] CMOS fingerprint endpoints (simplified stand-in)
+- [ ] Real PRNU / silicon fingerprint enroll + match
+- [ ] Hedera HCS attestation publishing
+- [ ] Arc USDC bond / slash
+- [ ] x402 paywalled stock queries
+- [ ] IPFS image publishing
+
+### Buyer routes
+
+| Route                              | Done |
+| ---------------------------------- | ---- |
+| `/buyer`                           | [x]  |
+| `/buyer/stock`                     | [x]  |
+| `/buyer/stock/[warehouseId]/[sku]` | [x]  |
+| `/buyer/orders`                    | [x]  |
+| `/buyer/orders/[id]`               | [x]  |
+| `/buyer/profile`                   | [x]  |
+
+### Supplier routes
+
+| Route                       | Done |
+| --------------------------- | ---- |
+| `/supplier`                 | [x]  |
+| `/supplier/orders`          | [x]  |
+| `/supplier/orders/[id]`     | [x]  |
+| `/supplier/warehouses`      | [x]  |
+| `/supplier/warehouses/[id]` | [x]  |
 
 ---
 
@@ -121,36 +193,34 @@ A supplier can still stage the real aisle before the shot — bond + dispute cov
 
 Verification checklist before accepting stock as live:
 
-1. `nonce` is one we issued and not expired / not reused  
-2. `cmosFingerprintHash` matches enrolled camera account  
-3. Frame is bound to `nonce` (watermark or `HMAC(frame, nonce)`)  
-4. `imageHash` matches published image  
-5. Signature validates under camera / supplier account  
+1. `nonce` is one we issued and not expired / not reused
+2. `cmosFingerprintHash` matches enrolled camera account
+3. Frame is bound to `nonce` (watermark or `HMAC(frame, nonce)`)
+4. `imageHash` matches published image
+5. Signature validates under camera / supplier account
 
 ---
 
-## Camera access (no admin password to us)
+## Camera access
 
 Prefer a **local warehouse agent**:
 
-- Runs on their LAN next to the camera  
-- Holds camera credentials locally  
-- Receives nonce challenges from ShelfSign  
-- Returns only attestations (+ optional image CID)  
+- Runs on their LAN next to the camera
+- Holds camera credentials locally
+- Receives nonce challenges from ShelfSign
+- Returns only attestations (+ optional image CID)
 
-Buyers never get RTSP. We never need the warehouse’s camera admin password in the cloud.
+Buyers never get RTSP. The cloud never needs the warehouse’s camera admin password.
 
 ---
 
-## Suggested stack
+## Stack
 
-- **Camera:** Hikvision / any CMOS IP cam + local agent (phone upload only as weak fallback)  
-- **Identity:** CMOS impurity / PRNU template → `cameraAccount`  
-- **Liveness:** server-issued attestable nonce  
-- **Vision:** Ultralytics YOLO (PyTorch); start with 3–5 SKUs/bins  
-- **Chain:** Hedera HCS for attestations + stake, and/or Arc USDC bond  
-- **Access:** x402 paywalled `GET /stock/:supplier/:sku`  
-- **Index:** The Graph or simple event indexer  
+- **Frontend:** Next.js (App Router), TypeScript, Supabase Auth
+- **Backend:** Node / Express (TypeScript) — nonce, attestations, cameras, warehouses, orders
+- **Vision:** Python FastAPI — YOLO stock detection + simplified CMOS / PRNU fingerprinting
+- **Data:** Supabase (Postgres + RLS)
+- **Planned:** Hedera HCS, Arc USDC bond, x402 paywalled stock queries, IPFS
 
 ---
 
@@ -158,145 +228,88 @@ Buyers never get RTSP. We never need the warehouse’s camera admin password in 
 
 ```
 ShelfSign/
-├── frontend/          Next.js (TypeScript) — buyer dashboard, attested stock view, x402 pay UI
-├── backend/           Node/Express (TypeScript) — nonce issuance, attestation verify, Hedera/Arc, x402 gateway
-├── vision-service/     Python (FastAPI) — YOLO stock detection + CMOS/PRNU sensor fingerprinting
-└── .claude/agents/     Claude Code subagents scoped to each part of the stack (see below)
+├── frontend/            Next.js — auth, supplier & buyer dashboards
+├── backend/             Express — nonce, attestation verify, cameras / warehouses / orders API
+├── vision-service/      FastAPI — YOLO + CMOS/PRNU fingerprinting
+├── supabase/migrations/ SQL schema + RLS
+└── .claude/agents/      Scoped subagents per stack area
 ```
 
-Scaffolding only — folder structure, package configs, and stubbed entry points.
-No feature code yet (matches project status below).
+---
 
-### Getting started (dev)
+## Getting started
 
 ```bash
-# frontend (Next.js)
-cd frontend && cp .env.example .env.local && npm install && npm run dev
+# 1. Create a Supabase project, then run supabase/migrations/*.sql
+#    against it (SQL editor, or `supabase db push`).
 
-# backend (Node/Express)
-cd backend && cp .env.example .env && npm install && npm run dev
+# frontend
+cd frontend && cp .env.example .env.local  # fill NEXT_PUBLIC_SUPABASE_* + NEXT_PUBLIC_API_URL
+npm install && npm run dev
 
-# vision-service (Python)
+# backend
+cd backend && cp .env.example .env  # fill SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY
+npm install && npm run dev
+
+# vision-service
 cd vision-service && cp .env.example .env
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 uvicorn src.main:app --reload --port 8000
 ```
 
-### Claude Code subagents
-
-Each part of the stack has a scoped subagent in `.claude/agents/` so work stays
-in its lane and picks up the right conventions automatically:
-
-| Agent | Scope |
-|-------|-------|
-| `frontend-dev` | `frontend/` — Next.js dashboard, attestation/nonce UI, x402 payment flow |
-| `backend-dev` | `backend/` — nonce/attestation/stock routes, verification pipeline |
-| `vision-cmos` | `vision-service/` — YOLO detection + CMOS/PRNU fingerprinting |
-| `blockchain-attestation` | Cross-cutting — attestation schema, Hedera HCS, Arc bond/slash, x402 scheme, IPFS |
+`frontend/` and `backend/` are npm workspaces off the root `package.json` — `npm install` from the repo root installs both.
 
 ---
 
-## Skills required
+## Demo accounts
 
-What a contributor needs to actually build this, mapped to the piece it touches:
+Ten seeded accounts (5 supplier, 5 buyer). All share one password.
 
-| Area | Skills |
-|------|--------|
-| **Frontend** | TypeScript, React, Next.js (App Router), basic Web3 payment UX |
-| **Backend** | Node.js, Express, REST API design, JWT/signature verification, async job handling |
-| **Computer vision** | Python, PyTorch, Ultralytics YOLO, OpenCV, object detection fundamentals |
-| **Sensor fingerprinting** | Digital image forensics / PRNU analysis, signal processing (wavelet denoising, cross-correlation) — the niche, hardest-to-hire-for skill here |
-| **Cryptography** | Digital signatures (ECDSA or equivalent), hashing, HMAC, key management for camera-bound identities |
-| **Blockchain / Web3** | Hedera SDK (HCS topics, accounts), Arc/EVM basics, USDC/ERC-20 mechanics, x402 payment protocol |
-| **Infra** | IPFS pinning, indexing (The Graph or a custom event indexer), env/secrets management for a local warehouse agent |
-| **Domain** | Retail/warehouse inventory workflows — useful for realistic SKU/shelf modeling and demo credibility |
+**Password:** `ShelfSignDemo1!`
 
----
+| Role     | Email                        | Company                |
+| -------- | ---------------------------- | ---------------------- |
+| Supplier | `demo.supplier1@example.com` | Himalayan Traders      |
+| Supplier | `demo.supplier2@example.com` | Kathmandu Cold Storage |
+| Supplier | `demo.supplier3@example.com` | Everest Steel Works    |
+| Supplier | `demo.supplier4@example.com` | Pokhara Farm Supply    |
+| Supplier | `demo.supplier5@example.com` | Terai Auto Parts       |
+| Buyer    | `demo.buyer1@example.com`    | Bhattarai Retail       |
+| Buyer    | `demo.buyer2@example.com`    | Kathmandu Mart         |
+| Buyer    | `demo.buyer3@example.com`    | Valley Wholesale       |
+| Buyer    | `demo.buyer4@example.com`    | Sunrise Distributors   |
+| Buyer    | `demo.buyer5@example.com`    | Himal Convenience      |
 
-## Claude Code plugins & skills
+Log in at `/login` — suppliers go to `/supplier`, buyers to `/buyer`.
 
-Installed to accelerate the pieces above (via `claude plugin install`, from
-Anthropic's official marketplace unless noted):
+To (re)create accounts against a fresh Supabase project:
 
-| Plugin | Scope | Covers |
-|--------|-------|--------|
-| [`frontend-design`](https://github.com/anthropics/claude-plugins-public/tree/main/plugins/frontend-design) | Project + global | Anthropic's official design skill — pushes toward a deliberate visual direction and production-grade UI instead of generic AI-default styling. Most-installed design plugin in the official directory. |
-| [`modern-web-guidance`](https://github.com/GoogleChrome/modern-web-guidance) | Global | Google Chrome's plugin — keeps frontend work aligned with current web platform best practices; bundles a Chrome-extensions skill too. |
-| [`convex`](https://github.com/get-convex/convex-backend-skill) | Global | Reactive TypeScript backend platform skill — schema design, auth, realtime, file storage, scheduled jobs, plus a `convex-reviewer` subagent. **Adopting it means replacing `backend/`'s custom Express layer** with Convex functions; that migration hasn't happened yet, this is just the skill being available. Express (`backend/`) stays the backend until that migration is explicitly done. |
+```bash
+cd backend
+npm run seed:demo
+```
 
-Considered but not installed:
-- **Figma** / **Superdesign** — extra design-canvas tools; skipped since `frontend-design` already covers UI quality for this build.
-- Generic "Node/Express API" skills found via web search (mcpmarket.com, claudedirectory.org, etc.) — these are unverified third-party listings outside Anthropic's marketplace, not installed without vetting their source.
-
-Repo-specific Claude Code subagents live in `.claude/agents/` — see
-[Repo structure](#repo-structure) above.
+Uses the Supabase admin API (`SUPABASE_SERVICE_ROLE_KEY` in `backend/.env`). Re-running is safe — existing accounts are reused and profiles re-synced.
 
 ---
 
-## ETHOnline prize fit
+## Demo script
 
-- **Hedera** — AI & Agentic Payments / x402 metered stock API; HCS for attestation log  
-- **The Graph** — index camera accounts, nonces, attestations, disputes  
-- **Arc** — USDC bond / settlement  
-- **ENS** (optional) — `supplier.eth` / warehouse / camera subnames (ENSv2)  
-
----
-
-## 60-second demo script
-
-1. Enroll camera → show CMOS account id  
-2. Issue nonce challenge  
-3. Live aisle frame (nonce visible or bound)  
-4. CMOS match ✓ + YOLO counts  
-5. Attestation on explorer / HashScan  
-6. Buyer pays ~$0.01 via x402 → stock  
-7. Replay old frame with stale nonce → **reject**  
-8. Different camera / phone photo → **CMOS fail**  
+1. Enroll camera → show CMOS account id
+2. Issue nonce challenge
+3. Live aisle frame (nonce visible or bound)
+4. CMOS match ✓ + YOLO counts
+5. Publish attestation
+6. Buyer browses stock and places an order
+7. Supplier confirms / fulfills the order
+8. Replay old frame with stale nonce → **reject**
+9. Different camera / phone photo → **CMOS fail**
 
 ---
 
-## Build order (hackathon)
+## What this is not
 
-1. Local agent + snapshot  
-2. CMOS fingerprint enroll + match (even a simplified residual template is fine for demo)  
-3. Nonce challenge–response  
-4. YOLO on one shelf  
-5. Hash + sign + publish attestation  
-6. x402 query API  
-7. Stake / slash (last)  
-
----
-
-## Naming
-
-**ShelfSign** — shelves → signed claims from silicon-bound cameras.
-
-Alternatives considered: StockAttest, CamClaim, ProofShelf, AisleOracle, VeriStock, HashShelf, SightStake.
-
----
-
-## What this is *not*
-
-- Not another freelance escrow  
-- Not a remittance app  
-- Not “generic x402 pay for an API” without a real-world oracle  
-- Not claiming vision counts are perfect inventory truth  
-- Not requiring buyers (or our cloud) to hold the camera password  
-
----
-
-## Sources
-
-- Fix My Itch (Razorpay): supplier stock visibility itch  
-- Competitive note: inventory SaaS exists; **CMOS-bound + nonce-fresh stock attestations sold pay-per-query** is still thin at ETHGlobal  
-
----
-
-## Status
-
-Idea documented (CMOS account signature + attestable nonce). Repo scaffolded
-(frontend/backend/vision-service structure + configs + Claude Code subagents).
-Feature implementation not started.
-
-**Internal rating:** ~8.5/10 for ETHOnline if demo shows nonce reject + CMOS mismatch clearly.
+- Not freelance escrow or remittance
+- Not a claim that vision counts are perfect inventory truth
+- Not requiring buyers (or the cloud) to hold the camera password
