@@ -17,13 +17,23 @@ export async function apiGet<T>(path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-export async function apiPost<T>(path: string, body: unknown): Promise<T> {
+export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...(await authHeaders()) },
-    body: JSON.stringify(body),
+    body: body === undefined ? undefined : JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`POST ${path} failed: ${res.status}`);
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    const reason =
+      detail?.detail ||
+      detail?.reasons?.join?.(", ") ||
+      detail?.error ||
+      `POST ${path} failed: ${res.status}`;
+    throw new Error(
+      typeof reason === "string" ? reason : JSON.stringify(reason),
+    );
+  }
   return res.json() as Promise<T>;
 }
 

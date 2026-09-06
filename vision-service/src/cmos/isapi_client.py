@@ -8,6 +8,7 @@ hardcoded camera via env vars — every ShelfSign supplier can register many
 cameras, so host/user/password come from the `cameras` table per request
 instead of a single .env.
 """
+
 from __future__ import annotations
 
 import time
@@ -47,19 +48,22 @@ class ISAPIClient:
     def __init__(
         self,
         host: str,
-        user: str,
-        password: str,
+        user: Optional[str] = None,
+        password: str = "",
         scheme: str = "http",
         timeout: float = 10.0,
         channel: int = 101,
+        username: Optional[str] = None,
     ):
-        if not host or not user or not password:
-            raise ValueError("host, user, and password are all required")
+        # Accept both `user` (SiliconWitness) and `username` (HTTP callers).
+        resolved_user = user or username
+        if not host or not resolved_user or not password:
+            raise ValueError("host, user/username, and password are all required")
         self.host = host
         self.scheme = scheme
         self.timeout = timeout
         self.channel = channel
-        self._auth = HTTPDigestAuth(user, password)
+        self._auth = HTTPDigestAuth(resolved_user, password)
         self._session = requests.Session()
 
     @property
@@ -84,13 +88,17 @@ class ISAPIClient:
             ok=r.ok,
         )
 
-    def put(self, path: str, data: Optional[str] = None, headers: Optional[dict] = None) -> ISAPIResponse:
+    def put(
+        self, path: str, data: Optional[str] = None, headers: Optional[dict] = None
+    ) -> ISAPIResponse:
         url = self._url(path)
         hdrs = {"Content-Type": "application/xml"}
         if headers:
             hdrs.update(headers)
         t0 = time.monotonic()
-        r = self._session.put(url, auth=self._auth, data=data, headers=hdrs, timeout=self.timeout)
+        r = self._session.put(
+            url, auth=self._auth, data=data, headers=hdrs, timeout=self.timeout
+        )
         elapsed = time.monotonic() - t0
         return ISAPIResponse(
             status_code=r.status_code,
@@ -121,5 +129,7 @@ class ISAPIClient:
         ch = channel or self.channel
         r = self.get(f"/ISAPI/Streaming/channels/{ch}/picture")
         if not r.ok:
-            raise ISAPIError("GET", f"/ISAPI/Streaming/channels/{ch}/picture", r.status_code, r.text)
+            raise ISAPIError(
+                "GET", f"/ISAPI/Streaming/channels/{ch}/picture", r.status_code, r.text
+            )
         return r.content

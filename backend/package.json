@@ -8,7 +8,8 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "seed:demo": "tsx scripts/seed-demo-accounts.ts",
-    "seed:demo-stock": "tsx scripts/seed-demo-stock.ts"
+    "seed:demo-stock": "tsx scripts/seed-demo-stock.ts",
+    "seed:camera-settings": "tsx scripts/seed-camera-settings.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",

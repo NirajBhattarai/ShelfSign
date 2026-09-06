@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { API_URL, apiPost } from "@/lib/api";
-import { supabase } from "@/lib/supabase";
+import { apiGet, apiPost } from "@/lib/api";
 import { Badge, EmptyState, LedStatus, Ledger, Overlay } from "@/components/ui";
+import { AttestWizard } from "@/components/AttestWizard";
 import { useToast } from "@/components/toast";
 import { useSupplierData, type Camera } from "../../SupplierDataContext";
 
@@ -26,13 +26,11 @@ export default function WarehouseDetailClient() {
     searchParams.get("addCamera") === "1",
   );
   const [label, setLabel] = useState("");
-  const [host, setHost] = useState("");
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [registering, setRegistering] = useState(false);
   const [viewingCamera, setViewingCamera] = useState<Camera | null>(null);
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
+  const [attestingCamera, setAttestingCamera] = useState<Camera | null>(null);
 
   useEffect(() => {
     if (searchParams.get("addCamera") === "1") setShowAddCamera(true);
@@ -41,30 +39,26 @@ export default function WarehouseDetailClient() {
   function resetCameraForm() {
     setShowAddCamera(false);
     setLabel("");
-    setHost("");
-    setUsername("");
-    setPassword("");
     setError(null);
   }
 
   async function registerCamera() {
-    if (!label.trim() || !host.trim() || !username.trim() || !password) return;
+    if (!label.trim()) return;
     setRegistering(true);
     setError(null);
     try {
+      // Host/user/pass come from backend system_settings (SiliconWitness
+      // defaults) — never collected or hardcoded on the frontend.
       await apiPost<Camera>("/cameras", {
         warehouseId: id,
         label: label.trim(),
-        host: host.trim(),
-        username: username.trim(),
-        password,
       });
       await refetchCameras();
       resetCameraForm();
       showToast("Camera registered.", "success");
     } catch {
       setError(
-        "Couldn't create that camera — check the details and try again.",
+        "Couldn't enroll that camera — check backend camera settings and try again.",
       );
     } finally {
       setRegistering(false);
@@ -72,13 +66,16 @@ export default function WarehouseDetailClient() {
   }
 
   async function openLiveView(cam: Camera) {
-    const { data } = await supabase.auth.getSession();
-    const token = data.session?.access_token;
-    if (!token) return;
-    setViewingCamera(cam);
-    setStreamUrl(
-      `${API_URL}/cameras/${cam.id}/stream?access_token=${encodeURIComponent(token)}`,
-    );
+    try {
+      // Stream URL is built on the backend from system_settings.public_api_url.
+      const { url } = await apiGet<{ url: string }>(
+        `/cameras/${cam.id}/stream-url`,
+      );
+      setViewingCamera(cam);
+      setStreamUrl(url);
+    } catch {
+      showToast("Couldn't open live view.", "error");
+    }
   }
 
   function closeLiveView() {
@@ -160,7 +157,23 @@ export default function WarehouseDetailClient() {
               <div className="row-title">{cam.label}</div>
               <div className="row-sub mono">{cam.host}</div>
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                flexWrap: "wrap",
+              }}
+            >
+              {cam.enrollment_status === "enrolled" && (
+                <button
+                  className="btn btn-primary"
+                  style={{ padding: "8px 12px" }}
+                  onClick={() => setAttestingCamera(cam)}
+                >
+                  Attest stock
+                </button>
+              )}
               <button
                 className="link-btn"
                 style={{ marginTop: 0 }}
@@ -204,8 +217,8 @@ export default function WarehouseDetailClient() {
         <Overlay onClose={resetCameraForm}>
           <div className="overlay-title">Add camera</div>
           <div className="overlay-sub">
-            Connection details for the camera itself — this is what lets
-            ShelfSign reach it and derive its silicon identity.
+            Name this camera. Connection details and SiliconWitness PUF
+            enrollment use backend database settings — not the browser.
           </div>
 
           <div className="field">
@@ -216,33 +229,6 @@ export default function WarehouseDetailClient() {
               onChange={(e) => setLabel(e.target.value)}
               placeholder="e.g. Aisle 3 overhead"
               autoFocus
-            />
-          </div>
-          <div className="field">
-            <label htmlFor="cam-host">Camera address</label>
-            <input
-              id="cam-host"
-              value={host}
-              onChange={(e) => setHost(e.target.value)}
-              placeholder="e.g. 192.168.50.64"
-            />
-          </div>
-          <div className="field">
-            <label htmlFor="cam-username">Username</label>
-            <input
-              id="cam-username"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="e.g. admin"
-            />
-          </div>
-          <div className="field">
-            <label htmlFor="cam-password">Password</label>
-            <input
-              id="cam-password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && registerCamera()}
             />
           </div>
@@ -261,13 +247,7 @@ export default function WarehouseDetailClient() {
               className="btn btn-primary"
               style={{ flex: 1 }}
               onClick={registerCamera}
-              disabled={
-                !label.trim() ||
-                !host.trim() ||
-                !username.trim() ||
-                !password ||
-                registering
-              }
+              disabled={!label.trim() || registering}
             >
               {registering ? "Enrolling…" : "Save & enroll"}
             </button>
@@ -284,6 +264,16 @@ export default function WarehouseDetailClient() {
           </div>
           <img src={streamUrl} alt="" className="camera-live-view" />
         </Overlay>
+      )}
+
+      {attestingCamera && (
+        <AttestWizard
+          camera={attestingCamera}
+          onClose={() => setAttestingCamera(null)}
+          onComplete={() =>
+            showToast("Stock attestation published.", "success")
+          }
+        />
       )}
     </div>
   );

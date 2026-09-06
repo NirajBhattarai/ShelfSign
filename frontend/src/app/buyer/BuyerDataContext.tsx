@@ -29,11 +29,13 @@ export interface StockItem {
 }
 
 export interface Attestation {
-  id: string;
-  camera_account: string;
-  nonce: string;
-  image_hash: string;
-  model_hash: string;
+  id: string | null;
+  camera_id?: string | null;
+  camera_account: string | null;
+  nonce: string | null;
+  image_hash: string | null;
+  model?: string | null;
+  model_hash: string | null;
   captured_at: string;
   items: StockItem[];
 }

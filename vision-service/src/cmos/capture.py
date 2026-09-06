@@ -6,6 +6,7 @@ carried over: fingerprinting uses ONLY the JPEG snapshot endpoint, never the
 video stream (PRNU-style residual extraction needs the sensor's own still
 pipeline, not a re-encoded video frame).
 """
+
 from __future__ import annotations
 
 import io
@@ -35,7 +36,18 @@ def capture_snapshot(client: ISAPIClient, channel: int = 101) -> Capture:
     img = Image.open(io.BytesIO(data))
     img.load()
     gray = np.asarray(img.convert("L"), dtype=np.float32)
-    return Capture(image=img, array=gray, raw_bytes=data, timestamp=ts, fetch_latency_s=fetch_latency)
+    return Capture(
+        image=img,
+        array=gray,
+        raw_bytes=data,
+        timestamp=ts,
+        fetch_latency_s=fetch_latency,
+    )
+
+
+def mean_luminance(cap: Capture) -> float:
+    """Mean grayscale luminance of the capture (SiliconWitness challenge measure)."""
+    return float(cap.array.mean())
 
 
 def saturation_variance(cap: Capture) -> float:

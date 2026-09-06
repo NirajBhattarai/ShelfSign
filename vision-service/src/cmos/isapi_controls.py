@@ -8,6 +8,7 @@ Different camera models/firmware may expose these paths slightly
 differently -- if enrollment fails with an ISAPIError on a new camera model,
 this is the first place to check.
 """
+
 from __future__ import annotations
 
 import re
@@ -22,8 +23,13 @@ IRCUT_PATH = f"/ISAPI/Image/channels/{CHANNEL}/ircutFilter"
 SUPPLEMENT_LIGHT_PATH = f"/ISAPI/Image/channels/{CHANNEL}/supplementLight"
 
 
-def set_osd_text(client: ISAPIClient, text: str, enabled: bool = True,
-                  position_x: int = 0, position_y: int = 576) -> None:
+def set_osd_text(
+    client: ISAPIClient,
+    text: str,
+    enabled: bool = True,
+    position_x: int = 0,
+    position_y: int = 576,
+) -> None:
     body = f"""<?xml version="1.0" encoding="UTF-8"?>
 <TextOverlay version="2.0" xmlns="http://www.hikvision.com/ver20/XMLSchema">
 <id>1</id>
@@ -62,3 +68,27 @@ def set_ir_brightness(client: ISAPIClient, level: int, mode: str = "irLight") ->
 <irLightBrightness>{level}</irLightBrightness>
 </SupplementLight>"""
     client.put_xml(SUPPLEMENT_LIGHT_PATH, body)
+
+
+# --- Image brightness / saturation (SiliconWitness challenge actuators) ---
+COLOR_PATH = f"/ISAPI/Image/channels/{CHANNEL}/color"
+
+
+def set_color(
+    client: ISAPIClient,
+    brightness: Optional[int] = None,
+    saturation: Optional[int] = None,
+    contrast: Optional[int] = None,
+) -> None:
+    b = brightness if brightness is not None else 50
+    s = saturation if saturation is not None else 50
+    c = contrast if contrast is not None else 50
+    for v in (b, s, c):
+        assert 0 <= v <= 100
+    body = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Color version="2.0" xmlns="http://www.hikvision.com/ver20/XMLSchema">
+<brightnessLevel>{b}</brightnessLevel>
+<contrastLevel>{c}</contrastLevel>
+<saturationLevel>{s}</saturationLevel>
+</Color>"""
+    client.put_xml(COLOR_PATH, body)

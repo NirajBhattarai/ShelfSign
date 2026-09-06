@@ -4,7 +4,12 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from .enroll_pipeline import EnrollmentRecord, enroll_from_camera, regenerate_from_camera
+from .challenge_pipeline import respond_to_challenge
+from .enroll_pipeline import (
+    EnrollmentRecord,
+    enroll_from_camera,
+    regenerate_from_camera,
+)
 
 # Real enrollment (see enroll_pipeline.py, ported from
 # /Users/niraj/Desktop/siliconwitness) runs when a camera's host/username/
@@ -34,6 +39,15 @@ def _load_record(camera_id: str) -> Optional[EnrollmentRecord]:
 def _save_record(camera_id: str, record: EnrollmentRecord) -> None:
     ENROLLMENTS_DIR.mkdir(parents=True, exist_ok=True)
     _record_path(camera_id).write_text(json.dumps(record.to_json(), indent=2))
+
+
+def has_enrollment(camera_id: str) -> bool:
+    return _record_path(camera_id).exists()
+
+
+def enrollment_address(camera_id: str) -> Optional[str]:
+    record = _load_record(camera_id)
+    return record.address if record else None
 
 
 def enroll(
@@ -81,7 +95,10 @@ def match(
         if record is not None:
             try:
                 address, corrected_bit_errors = regenerate_from_camera(
-                    host=host, username=username, password=password, record=record,
+                    host=host,
+                    username=username,
+                    password=password,
+                    record=record,
                 )
                 return {
                     "match": address == cmos_account,
@@ -98,3 +115,46 @@ def match(
     candidate = hashlib.sha256(frame).hexdigest()
     score = sum(a == b for a, b in zip(template, candidate)) / len(template)
     return {"match": score > 0.95, "score": score}
+
+
+def challenge(
+    camera_id: str,
+    cmos_account: str,
+    nonce: str,
+    host: str,
+    username: str,
+    password: str,
+) -> dict:
+    """SiliconWitness physical challenge-response attestation.
+
+    Applies OSD nonce + IR/brightness actuators, regenerates the PUF key
+    from a fresh capture, and signs. `match` is true only when the
+    regenerated address equals both the enrollment record and the expected
+    `cmos_account`.
+    """
+    record = _load_record(camera_id)
+    if record is None:
+        raise FileNotFoundError(f"no_enrollment_for_camera:{camera_id}")
+    if record.address.lower() != cmos_account.lower():
+        raise ValueError("cmos_account_mismatch_enrollment")
+
+    result = respond_to_challenge(
+        host=host,
+        username=username,
+        password=password,
+        record=record,
+        nonce=nonce,
+    )
+    if result.get("cmosAccount", "").lower() != cmos_account.lower():
+        result["match"] = False
+        result["score"] = 0.0
+
+    # Expose the capture as base64 for the backend YOLO pass (same frame).
+    frame_bytes = result.pop("frameBytes", None)
+    if isinstance(frame_bytes, (bytes, bytearray)):
+        import base64
+
+        result["frameBase64"] = base64.b64encode(frame_bytes).decode("ascii")
+    else:
+        result["frameBase64"] = None
+    return result

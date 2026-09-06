@@ -2,10 +2,10 @@ import "dotenv/config";
 import { createHash, randomBytes } from "node:crypto";
 import { supabase } from "../src/services/supabase.js";
 
-// Seeds warehouses + enrolled cameras + attestations for demo suppliers
-// so buyers have searchable/filterable stock in the catalog. Safe to re-run:
-// existing demo warehouses (by name + supplier) are reused; attestations are
-// replaced for those cameras.
+// Seeds warehouses + catalog placeholder cameras + attestations for demo
+// suppliers so buyers have searchable/filterable stock. Cameras are pending
+// (no stub host/user/pass); live attest uses system_settings + real PUF.
+// Safe to re-run: warehouses reused; cameras cleared of stub creds; attestations replaced.
 
 interface StockItem {
   sku: string;
@@ -178,7 +178,9 @@ async function seedWarehouse(demo: DemoWarehouse, supplierId: string) {
       .eq("id", warehouseId);
   }
 
-  const cmosAccount = `cam_cmos_demo_${hash(demo.name).slice(0, 10)}`;
+  // Catalog-only placeholder camera (label only). Live attest uses
+  // system_settings Hikvision + real PUF enroll — never stub host/user/pass.
+  const catalogAccount = `catalog_${hash(demo.name).slice(0, 12)}`;
 
   const { data: existingCam } = await supabase
     .from("cameras")
@@ -196,11 +198,11 @@ async function seedWarehouse(demo: DemoWarehouse, supplierId: string) {
         warehouse_id: warehouseId,
         supplier_id: supplierId,
         label: demo.cameraLabel,
-        cmos_account: cmosAccount,
-        enrollment_status: "enrolled",
-        host: "127.0.0.1",
-        username: "demo",
-        password: "demo",
+        cmos_account: null,
+        enrollment_status: "pending",
+        host: null,
+        username: null,
+        password: null,
       })
       .select("id")
       .single();
@@ -211,11 +213,11 @@ async function seedWarehouse(demo: DemoWarehouse, supplierId: string) {
     await supabase
       .from("cameras")
       .update({
-        cmos_account: cmosAccount,
-        enrollment_status: "enrolled",
-        host: "127.0.0.1",
-        username: "demo",
-        password: "demo",
+        cmos_account: null,
+        enrollment_status: "pending",
+        host: null,
+        username: null,
+        password: null,
       })
       .eq("id", cameraId);
   }
@@ -230,7 +232,7 @@ async function seedWarehouse(demo: DemoWarehouse, supplierId: string) {
   const { error: attError } = await supabase.from("attestations").insert({
     camera_id: cameraId,
     supplier_id: supplierId,
-    camera_account: cmosAccount,
+    camera_account: catalogAccount,
     nonce,
     image_cid: null,
     image_hash: hash(`${demo.name}:${payload}`),

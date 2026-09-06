@@ -115,11 +115,14 @@ Checkboxes mark what is done in the repo today. Unchecked items are still open.
 
 - [x] Dashboard overview (order + warehouse KPIs)
 - [x] Warehouses — create, categories, photo
-- [x] Cameras — register, enrollment status, live stream
+- [x] Cameras — register (label only; creds from DB), enrollment status, live stream
 - [x] Incoming orders — list, filter, search
 - [x] Order detail — confirm / fulfill / cancel + status progress
 - [ ] Local warehouse agent (credentials stay on LAN)
-- [ ] Full CMOS enroll + match against live frames in production flow
+- [x] CMOS/PUF enroll + SiliconWitness challenge-response (Hikvision ISAPI)
+- [x] Supplier attest wizard (nonce → SiliconWitness challenge → YOLO counts)
+- [x] `POST /cameras/:id/attest` server-side verification (not client-trusted flags)
+- [x] `system_settings` DB table for camera/vision config (no frontend secrets)
 
 ### Buyer
 
@@ -141,9 +144,9 @@ Checkboxes mark what is done in the repo today. Unchecked items are still open.
 - [x] Attestation ingest + public read
 - [x] Warehouse browse + stock by attestation
 - [x] Buy orders linked to attestation (optional)
-- [x] Vision service — YOLO stock detection (FastAPI)
-- [x] CMOS fingerprint endpoints (simplified stand-in)
-- [ ] Real PRNU / silicon fingerprint enroll + match
+- [x] Vision service — YOLO stock detection (FastAPI + Ultralytics/PyTorch)
+- [x] CMOS fingerprint endpoints (PUF enroll/match/challenge; SiliconWitness path)
+- [ ] Classical PRNU residual correlation (current path is pixel-stability PUF)
 - [ ] Hedera HCS attestation publishing
 - [ ] Arc USDC bond / slash
 - [ ] x402 paywalled stock queries
@@ -291,7 +294,10 @@ To (re)create accounts against a fresh Supabase project:
 cd backend
 npm run seed:demo
 npm run seed:demo-stock   # warehouses + attested SKUs for buyer catalog search/filter
+npm run seed:camera-settings  # Hikvision host/user/pass + vision URL → system_settings
 ```
+
+Before `seed:camera-settings`, apply `supabase/migrations/0004_system_settings.sql` in the Supabase SQL editor. Until then, enroll/attest fall back to `HIKVISION_*` / `VISION_SERVICE_URL` in `backend/.env` (synced from SiliconWitness for now).
 
 Uses the Supabase admin API (`SUPABASE_SERVICE_ROLE_KEY` in `backend/.env`). Re-running is safe — existing accounts are reused and profiles re-synced. Stock seeding replaces attestations on demo cameras.
 

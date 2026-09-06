@@ -1,6 +1,18 @@
+import { Readable } from "node:stream";
 import { Router } from "express";
 import { requireAuth, type AuthedRequest } from "../middleware/auth.js";
 import { supabase } from "../services/supabase.js";
+import {
+  getBuyerStockCopy,
+  getBuyerTrustChecks,
+  getDefaultCameraCredentials,
+  getPublicApiUrl,
+  getVisionServiceUrl,
+} from "../services/settings.js";
+import {
+  attestErrorPayload,
+  runFullAttestation,
+} from "../services/attestCamera.js";
 
 export const warehouseRouter = Router();
 
@@ -32,6 +44,92 @@ async function uploadWarehousePhoto(supplierId: string, dataUrl: string) {
   const { data } = supabase.storage.from(PHOTO_BUCKET).getPublicUrl(path);
   return { url: data.publicUrl };
 }
+
+// Buyer (or any logged-in user) live MJPEG of an enrolled warehouse camera.
+// Auth via access_token query param so an <img> can load it. Camera
+// credentials never leave the backend — same proxy pattern as supplier
+// /cameras/:id/stream, but ownership is not required (buyers need to see
+// the aisle to trust attested stock).
+warehouseRouter.get("/:id/live", async (req, res) => {
+  const token =
+    typeof req.query.access_token === "string" ? req.query.access_token : null;
+  if (!token) {
+    res.status(401).end();
+    return;
+  }
+
+  const { data: userData, error: userError } =
+    await supabase.auth.getUser(token);
+  if (userError || !userData.user) {
+    res.status(401).end();
+    return;
+  }
+
+  const cameraIdHint =
+    typeof req.query.camera_id === "string" ? req.query.camera_id : null;
+
+  let cameraQuery = supabase
+    .from("cameras")
+    .select("id, host, username, password, enrollment_status, label")
+    .eq("warehouse_id", req.params.id)
+    .order("created_at", { ascending: true })
+    .limit(1);
+
+  if (cameraIdHint) {
+    cameraQuery = supabase
+      .from("cameras")
+      .select("id, host, username, password, enrollment_status, label")
+      .eq("warehouse_id", req.params.id)
+      .eq("id", cameraIdHint)
+      .limit(1);
+  }
+
+  const { data: cameras } = await cameraQuery;
+  const camera = cameras?.[0];
+  if (!camera) {
+    res.status(404).end();
+    return;
+  }
+
+  const defaults = await getDefaultCameraCredentials();
+  const host = defaults?.host || camera.host;
+  const username = defaults?.username || camera.username;
+  const password = defaults?.password || camera.password;
+  if (!host || !username || !password) {
+    res.status(404).end();
+    return;
+  }
+
+  const visionUrl = await getVisionServiceUrl();
+  const streamUrl = new URL("/cmos/stream", visionUrl);
+  streamUrl.searchParams.set("host", host);
+  streamUrl.searchParams.set("username", username);
+  streamUrl.searchParams.set("password", password);
+
+  const controller = new AbortController();
+  req.on("close", () => controller.abort());
+
+  try {
+    const streamRes = await fetch(streamUrl, { signal: controller.signal });
+    if (!streamRes.ok || !streamRes.body) {
+      res.status(502).end();
+      return;
+    }
+    res.setHeader(
+      "Content-Type",
+      streamRes.headers.get("content-type") ?? "multipart/x-mixed-replace",
+    );
+    res.setHeader("Cache-Control", "no-store");
+    const nodeStream = Readable.fromWeb(streamRes.body as never);
+    nodeStream.on("error", () => {
+      if (!res.writableEnded) res.end();
+    });
+    res.on("error", () => {});
+    nodeStream.pipe(res);
+  } catch {
+    if (!res.headersSent) res.status(502).end();
+  }
+});
 
 warehouseRouter.use(requireAuth);
 
@@ -137,6 +235,7 @@ interface CatalogRow {
   };
   attestation: {
     id: string;
+    camera_id: string;
     camera_account: string;
     nonce: string;
     image_hash: string;
@@ -224,7 +323,7 @@ warehouseRouter.get("/catalog", async (req, res) => {
       const { data: attestations } = await supabase
         .from("attestations")
         .select(
-          "id, camera_account, nonce, image_hash, model_hash, items, captured_at",
+          "id, camera_id, camera_account, nonce, image_hash, model_hash, items, captured_at",
         )
         .in("camera_id", cameraIds)
         .order("captured_at", { ascending: false });
@@ -236,6 +335,7 @@ warehouseRouter.get("/catalog", async (req, res) => {
             warehouse: wh,
             attestation: {
               id: att.id,
+              camera_id: att.camera_id,
               camera_account: att.camera_account,
               nonce: att.nonce,
               image_hash: att.image_hash,
@@ -338,7 +438,7 @@ warehouseRouter.get("/:id/stock", async (req, res) => {
   const { data, error } = await supabase
     .from("attestations")
     .select(
-      "id, camera_account, nonce, image_cid, image_hash, model, model_hash, items, captured_at",
+      "id, camera_id, camera_account, nonce, image_cid, image_hash, model, model_hash, items, captured_at",
     )
     .in("camera_id", cameraIds)
     .order("captured_at", { ascending: false });
@@ -348,4 +448,224 @@ warehouseRouter.get("/:id/stock", async (req, res) => {
     return;
   }
   res.json(data);
+});
+
+function bearerToken(req: AuthedRequest): string | null {
+  const header = req.headers.authorization;
+  return header?.startsWith("Bearer ") ? header.slice(7) : null;
+}
+
+// Buyer stock detail for one SKU — live stream URL + trust copy come from
+// backend/DB so the frontend never hardcodes hosts or SiliconWitness text.
+warehouseRouter.get("/:id/stock/:sku", async (req: AuthedRequest, res) => {
+  const warehouseId = req.params.id;
+  const sku = decodeURIComponent(req.params.sku);
+
+  const { data: warehouse, error: whError } = await supabase
+    .from("warehouses")
+    .select(
+      "id, name, location, categories, image_url, supplier_id, profiles(company_name)",
+    )
+    .eq("id", warehouseId)
+    .maybeSingle();
+
+  if (whError || !warehouse) {
+    res.status(404).json({ error: "warehouse_not_found" });
+    return;
+  }
+
+  const { data: cameras } = await supabase
+    .from("cameras")
+    .select("id, label, enrollment_status")
+    .eq("warehouse_id", warehouseId);
+
+  const cameraIds = (cameras ?? []).map((c) => c.id as string);
+
+  const { data: attestations } = cameraIds.length
+    ? await supabase
+        .from("attestations")
+        .select(
+          "id, camera_id, camera_account, nonce, image_cid, image_hash, model, model_hash, items, captured_at",
+        )
+        .in("camera_id", cameraIds)
+        .order("captured_at", { ascending: false })
+    : { data: [] as never[] };
+
+  type StockItemRow = {
+    sku: string;
+    count: number;
+    confidence: number;
+    shelf: string;
+  };
+
+  type AttestationRow = NonNullable<typeof attestations>[number];
+
+  let matchedItem: StockItemRow | null = null;
+  let matchedAtt: AttestationRow | null = null;
+
+  for (const att of attestations ?? []) {
+    const items = (att.items ?? []) as StockItemRow[];
+    const item = items.find((i) => i.sku === sku);
+    if (item) {
+      matchedItem = item;
+      matchedAtt = att;
+      break;
+    }
+  }
+
+  // Camera may not be aimed at this SKU (or YOLO saw nothing). Still serve
+  // the warehouse page with count 0 + latest attestation / live stream so
+  // buyers can re-attest instead of getting a hard 404.
+  const skuAbsent = !matchedItem;
+  if (!matchedItem) {
+    matchedItem = { sku, count: 0, confidence: 0, shelf: "" };
+  }
+  if (!matchedAtt) {
+    matchedAtt = (attestations ?? [])[0] ?? null;
+  }
+
+  const fallbackCamera =
+    (cameras ?? []).find((c) => c.enrollment_status === "enrolled") ??
+    (cameras ?? [])[0] ??
+    null;
+
+  if (!matchedAtt && !fallbackCamera) {
+    res.status(404).json({
+      error: "sku_not_found",
+      detail: "No camera or attestation for this warehouse yet.",
+    });
+    return;
+  }
+
+  const camera = matchedAtt
+    ? (cameras ?? []).find((c) => c.id === matchedAtt!.camera_id)
+    : fallbackCamera;
+  const token = bearerToken(req);
+  const publicApi = await getPublicApiUrl();
+  const trustChecks = await getBuyerTrustChecks();
+  const stockCopy = await getBuyerStockCopy();
+
+  let liveStreamUrl: string | null = null;
+  if (token) {
+    const cameraId = matchedAtt?.camera_id || fallbackCamera?.id;
+    if (cameraId) {
+      const qs = new URLSearchParams({
+        access_token: token,
+        camera_id: cameraId,
+      });
+      liveStreamUrl = `${publicApi}/warehouses/${warehouseId}/live?${qs}`;
+    }
+  }
+
+  const items = (matchedAtt?.items ?? []) as StockItemRow[];
+  const capturedAt = matchedAtt?.captured_at ?? new Date().toISOString();
+
+  res.json({
+    warehouse: {
+      id: warehouse.id,
+      name: warehouse.name,
+      location: warehouse.location,
+      categories: warehouse.categories ?? [],
+      image_url: warehouse.image_url,
+      supplier_id: warehouse.supplier_id,
+      profiles: warehouse.profiles,
+    },
+    item: matchedItem,
+    skuAbsent,
+    attestation: {
+      id: matchedAtt?.id ?? null,
+      camera_id: matchedAtt?.camera_id ?? fallbackCamera?.id ?? null,
+      camera_account: matchedAtt?.camera_account ?? null,
+      camera_label: camera?.label ?? null,
+      nonce: matchedAtt?.nonce ?? null,
+      image_cid: matchedAtt?.image_cid ?? null,
+      image_hash: matchedAtt?.image_hash ?? null,
+      model: matchedAtt?.model ?? null,
+      model_hash: matchedAtt?.model_hash ?? null,
+      items,
+      captured_at: capturedAt,
+    },
+    liveStreamUrl,
+    totalUnits: items.reduce((n, i) => n + (Number(i.count) || 0), 0),
+    trustChecks: trustChecks.map((c) => ({ ...c, ok: true })),
+    copy: {
+      ...stockCopy,
+      overlaySub: skuAbsent
+        ? `${matchedItem.sku} was not in the latest camera count at ${warehouse.name} (0 units). Aim the camera or attest again.`
+        : `Proof that ${matchedItem.sku} was counted on a real enrolled camera at ${warehouse.name} — not a spreadsheet upload.`,
+      countLiveLabel: "Attest live frame",
+      countLiveBusy: "Running full attestation (OSD + PUF + YOLO)…",
+      countLiveHint:
+        "Runs a full SiliconWitness attestation: OSD nonce, PUF identity, then YOLO count on that frame. Saves a new attestation for this warehouse camera.",
+    },
+  });
+});
+
+// Full attestation from the buyer View-attestation UI: OSD + PUF + YOLO,
+// then persist (same pipeline as supplier Attest stock).
+warehouseRouter.post("/:id/count-live", async (req: AuthedRequest, res) => {
+  const warehouseId = req.params.id;
+  const cameraIdHint =
+    typeof req.body?.cameraId === "string" ? req.body.cameraId : null;
+
+  let cameraQuery = supabase
+    .from("cameras")
+    .select(
+      "id, supplier_id, host, username, password, cmos_account, enrollment_status, label",
+    )
+    .eq("warehouse_id", warehouseId)
+    .order("created_at", { ascending: true })
+    .limit(1);
+
+  if (cameraIdHint) {
+    cameraQuery = supabase
+      .from("cameras")
+      .select(
+        "id, supplier_id, host, username, password, cmos_account, enrollment_status, label",
+      )
+      .eq("warehouse_id", warehouseId)
+      .eq("id", cameraIdHint)
+      .limit(1);
+  }
+
+  const { data: cameras, error: camError } = await cameraQuery;
+  if (camError) {
+    res
+      .status(500)
+      .json({ error: "camera_query_failed", detail: camError.message });
+    return;
+  }
+  const camera = cameras?.[0];
+  if (!camera) {
+    res.status(404).json({
+      error: "no_camera",
+      detail: "No camera found for this warehouse.",
+    });
+    return;
+  }
+
+  try {
+    const result = await runFullAttestation(camera);
+    res.status(201).json({
+      cameraId: result.cameraId,
+      cameraLabel: result.cameraLabel,
+      items: result.items,
+      totalUnits: result.totalUnits,
+      detectionCount: result.detectionCount,
+      model: result.model,
+      modelHash: result.modelHash,
+      imageHash: result.imageHash,
+      engine: result.engine,
+      countedAt: result.countedAt,
+      nonce: result.nonce,
+      cmosScore: result.cmosScore,
+      attestationId: (result.attestation as { id?: string }).id ?? null,
+      attestation: result.attestation,
+      steps: result.steps,
+      fullAttestation: true,
+    });
+  } catch (err) {
+    const { status, body } = attestErrorPayload(err);
+    res.status(status).json(body);
+  }
 });

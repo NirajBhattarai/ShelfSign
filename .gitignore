@@ -21,3 +21,7 @@ vision-service/models/
 
 # OS
 .DS_Store
+
+# Ultralytics downloads weights on first run
+*.pt
+yolov8n.pt
