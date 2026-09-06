@@ -123,6 +123,198 @@ warehouseRouter.get("/browse", async (req, res) => {
   res.json(data);
 });
 
+type CatalogSort = "sku" | "count" | "supplier" | "captured";
+
+interface CatalogRow {
+  warehouse: {
+    id: string;
+    name: string;
+    location: string | null;
+    categories: string[];
+    image_url: string | null;
+    supplier_id: string;
+    profiles: { company_name: string } | null;
+  };
+  attestation: {
+    id: string;
+    camera_account: string;
+    nonce: string;
+    image_hash: string;
+    model_hash: string;
+    captured_at: string;
+  };
+  item: {
+    sku: string;
+    count: number;
+    confidence: number;
+    shelf: string;
+  };
+}
+
+// Flattened, filterable, paginated stock catalog for the buyer UI.
+warehouseRouter.get("/catalog", async (req, res) => {
+  const q =
+    typeof req.query.q === "string" ? req.query.q.trim().toLowerCase() : "";
+  const category =
+    typeof req.query.category === "string" && req.query.category !== "all"
+      ? req.query.category
+      : null;
+  const supplierId =
+    typeof req.query.supplierId === "string" && req.query.supplierId !== "all"
+      ? req.query.supplierId
+      : null;
+  const availability =
+    typeof req.query.availability === "string" ? req.query.availability : "all";
+  const sort = (
+    typeof req.query.sort === "string" ? req.query.sort : "sku"
+  ) as CatalogSort;
+  const page = Math.max(1, parseInt(String(req.query.page ?? "1"), 10) || 1);
+  const limit = Math.min(
+    48,
+    Math.max(1, parseInt(String(req.query.limit ?? "12"), 10) || 12),
+  );
+
+  const { data: warehouses, error: whError } = await supabase
+    .from("warehouses")
+    .select(
+      "id, name, location, categories, image_url, supplier_id, profiles(company_name)",
+    )
+    .order("created_at", { ascending: false });
+
+  if (whError) {
+    res.status(500).json({ error: "query_failed" });
+    return;
+  }
+
+  const warehouseList: CatalogRow["warehouse"][] = (
+    (warehouses ?? []) as unknown as Array<Record<string, unknown>>
+  ).map((raw) => {
+    const profilesRaw = raw.profiles;
+    const profile = Array.isArray(profilesRaw)
+      ? (profilesRaw[0] as { company_name: string } | undefined)
+      : (profilesRaw as { company_name: string } | null);
+    return {
+      id: String(raw.id),
+      name: String(raw.name),
+      location: (raw.location as string | null) ?? null,
+      categories: (raw.categories as string[]) ?? [],
+      image_url: (raw.image_url as string | null) ?? null,
+      supplier_id: String(raw.supplier_id),
+      profiles: profile?.company_name
+        ? { company_name: profile.company_name }
+        : null,
+    };
+  });
+  const filteredWarehouses = warehouseList.filter((wh) => {
+    if (category && !wh.categories.includes(category)) return false;
+    if (supplierId && wh.supplier_id !== supplierId) return false;
+    return true;
+  });
+
+  const rows: CatalogRow[] = [];
+  await Promise.all(
+    filteredWarehouses.map(async (wh) => {
+      const { data: cameras } = await supabase
+        .from("cameras")
+        .select("id")
+        .eq("warehouse_id", wh.id);
+      const cameraIds = (cameras ?? []).map((c) => c.id as string);
+      if (cameraIds.length === 0) return;
+
+      const { data: attestations } = await supabase
+        .from("attestations")
+        .select(
+          "id, camera_account, nonce, image_hash, model_hash, items, captured_at",
+        )
+        .in("camera_id", cameraIds)
+        .order("captured_at", { ascending: false });
+
+      for (const att of attestations ?? []) {
+        const items = (att.items ?? []) as CatalogRow["item"][];
+        for (const item of items) {
+          rows.push({
+            warehouse: wh,
+            attestation: {
+              id: att.id,
+              camera_account: att.camera_account,
+              nonce: att.nonce,
+              image_hash: att.image_hash,
+              model_hash: att.model_hash,
+              captured_at: att.captured_at,
+            },
+            item,
+          });
+        }
+      }
+    }),
+  );
+
+  let filtered = rows.filter((row) => {
+    if (availability === "in_stock" && row.item.count < 1) return false;
+    if (availability === "low" && (row.item.count < 1 || row.item.count > 10))
+      return false;
+    if (q) {
+      const hay = [
+        row.item.sku,
+        row.warehouse.name,
+        row.warehouse.profiles?.company_name ?? "",
+        row.item.shelf,
+        ...row.warehouse.categories,
+      ]
+        .join(" ")
+        .toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+
+  filtered.sort((a, b) => {
+    switch (sort) {
+      case "count":
+        return b.item.count - a.item.count;
+      case "supplier":
+        return (a.warehouse.profiles?.company_name ?? "").localeCompare(
+          b.warehouse.profiles?.company_name ?? "",
+        );
+      case "captured":
+        return (
+          new Date(b.attestation.captured_at).getTime() -
+          new Date(a.attestation.captured_at).getTime()
+        );
+      default:
+        return a.item.sku.localeCompare(b.item.sku);
+    }
+  });
+
+  const total = filtered.length;
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+  const safePage = Math.min(page, totalPages);
+  const start = (safePage - 1) * limit;
+  const items = filtered.slice(start, start + limit);
+
+  const categories = [
+    ...new Set(warehouseList.flatMap((wh) => wh.categories)),
+  ].sort();
+  const suppliersMap = new Map<string, string>();
+  warehouseList.forEach((wh) => {
+    if (wh.profiles?.company_name)
+      suppliersMap.set(wh.supplier_id, wh.profiles.company_name);
+  });
+  const suppliers = [...suppliersMap.entries()]
+    .map(([id, name]) => ({ id, name }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  res.json({
+    items,
+    page: safePage,
+    limit,
+    total,
+    totalPages,
+    categories,
+    suppliers,
+  });
+});
+
 // Attested stock captured by any camera registered to this warehouse —
 // this is the "attested image" a buyer is really asking to see: the
 // warehouse photo plus the live camera attestations tied to it.

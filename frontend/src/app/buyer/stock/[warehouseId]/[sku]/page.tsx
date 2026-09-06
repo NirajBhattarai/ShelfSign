@@ -1,9 +1,16 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { apiGet } from "@/lib/api";
 import { Badge, DetailRow, EmptyState, PageHeader } from "@/components/ui";
-import { useBuyerData } from "../../../BuyerDataContext";
+import {
+  type Attestation,
+  type StockItem,
+  type StockRow,
+  type Warehouse,
+  useBuyerData,
+} from "../../../BuyerDataContext";
 import { PlaceOrderDialog } from "../../../PlaceOrderDialog";
 
 export default function StockDetailPage() {
@@ -11,15 +18,73 @@ export default function StockDetailPage() {
   const warehouseId = params.warehouseId;
   const sku = decodeURIComponent(params.sku);
   const router = useRouter();
-  const { findStock, loading, stock } = useBuyerData();
-  const [ordering, setOrdering] = useState(false);
+  const { findStock } = useBuyerData();
 
-  const row = useMemo(
+  const cached = useMemo(
     () => findStock(warehouseId, sku),
     [findStock, warehouseId, sku],
   );
+  const [row, setRow] = useState<StockRow | null>(cached ?? null);
+  const [loading, setLoading] = useState(!cached);
+  const [error, setError] = useState<string | null>(null);
+  const [ordering, setOrdering] = useState(false);
 
-  if (loading && stock.length === 0) {
+  useEffect(() => {
+    if (cached) {
+      setRow(cached);
+      setLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setLoading(true);
+    Promise.all([
+      apiGet<Warehouse[]>("/warehouses/browse"),
+      apiGet<Attestation[]>(`/warehouses/${warehouseId}/stock`),
+    ])
+      .then(([warehouses, attestations]) => {
+        if (cancelled) return;
+        const warehouse = warehouses.find((w) => w.id === warehouseId);
+        if (!warehouse) {
+          setRow(null);
+          setError("Warehouse not found.");
+          return;
+        }
+        for (const attestation of attestations) {
+          const item = (attestation.items as StockItem[]).find(
+            (i) => i.sku === sku,
+          );
+          if (item) {
+            setRow({ warehouse, attestation, item });
+            setError(null);
+            return;
+          }
+        }
+        setRow(null);
+        setError(
+          "This SKU is not in the latest attestation for that warehouse.",
+        );
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setRow(null);
+          setError(
+            err instanceof Error
+              ? err.message
+              : "Couldn't load this stock item.",
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [cached, warehouseId, sku]);
+
+  if (loading) {
     return (
       <div>
         <div
@@ -52,7 +117,10 @@ export default function StockDetailPage() {
         <div className="panel panel-pad" style={{ marginTop: 16 }}>
           <EmptyState
             title="Stock item not found"
-            description="This SKU may no longer be in the latest attestation for that warehouse."
+            description={
+              error ??
+              "This SKU may no longer be in the latest attestation for that warehouse."
+            }
             action={
               <button
                 className="btn btn-primary"
@@ -81,6 +149,7 @@ export default function StockDetailPage() {
             <img
               src={warehouse.image_url}
               alt={`${warehouse.name} warehouse`}
+              fetchPriority="high"
             />
           ) : (
             <div className="product-detail-media-empty">No warehouse photo</div>

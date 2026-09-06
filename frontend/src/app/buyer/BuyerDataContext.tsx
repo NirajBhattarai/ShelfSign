@@ -60,6 +60,16 @@ export interface BuyerOrder {
   warehouse_name?: string | null;
 }
 
+export interface CatalogResponse {
+  items: StockRow[];
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+  categories: string[];
+  suppliers: { id: string; name: string }[];
+}
+
 interface BuyerData {
   warehouses: Warehouse[];
   stock: StockRow[];
@@ -84,29 +94,27 @@ export function BuyerDataProvider({ children }: { children: ReactNode }) {
   const refetchStock = useCallback(async () => {
     setStockError(null);
     try {
-      const warehouseList = await apiGet<Warehouse[]>("/warehouses/browse");
-      setWarehouses(warehouseList);
-      const perWarehouse = await Promise.all(
-        warehouseList.map(async (wh) => {
-          const attestations = await apiGet<Attestation[]>(
-            `/warehouses/${wh.id}/stock`,
-          ).catch(() => []);
-          return attestations.flatMap((att) =>
-            att.items.map((item) => ({
-              warehouse: wh,
-              attestation: att,
-              item,
-            })),
-          );
-        }),
+      const catalog = await apiGet<CatalogResponse>(
+        "/warehouses/catalog?page=1&limit=48&sort=captured",
       );
-      setStock(perWarehouse.flat());
+      setStock(catalog.items);
+      const warehouseMap = new Map<string, Warehouse>();
+      catalog.items.forEach((row) => {
+        warehouseMap.set(row.warehouse.id, row.warehouse);
+      });
+      // Also pull browse list so empty warehouses still appear in filters elsewhere.
+      const browse = await apiGet<Warehouse[]>("/warehouses/browse").catch(
+        () => [...warehouseMap.values()],
+      );
+      setWarehouses(browse.length ? browse : [...warehouseMap.values()]);
     } catch (err) {
-      setStockError(
-        err instanceof Error ? err.message : "Couldn't load stock.",
-      );
       setWarehouses([]);
       setStock([]);
+      setStockError(
+        err instanceof Error
+          ? err.message
+          : "Couldn't load stock from the server.",
+      );
     }
   }, []);
 

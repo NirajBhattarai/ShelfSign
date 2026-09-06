@@ -107,6 +107,8 @@ Checkboxes mark what is done in the repo today. Unchecked items are still open.
 - [x] Signup / login (supplier & buyer roles)
 - [x] Role-based routing (`/supplier` · `/buyer`)
 - [x] Demo account seeding (`npm run seed:demo`)
+- [x] Demo stock seeding for buyer catalog (`npm run seed:demo-stock`)
+- [x] Paginated buyer stock catalog API (`GET /warehouses/catalog`)
 - [x] Responsive UI (desktop / tablet / mobile)
 
 ### Supplier
@@ -288,9 +290,12 @@ To (re)create accounts against a fresh Supabase project:
 ```bash
 cd backend
 npm run seed:demo
+npm run seed:demo-stock   # warehouses + attested SKUs for buyer catalog search/filter
 ```
 
-Uses the Supabase admin API (`SUPABASE_SERVICE_ROLE_KEY` in `backend/.env`). Re-running is safe — existing accounts are reused and profiles re-synced.
+Uses the Supabase admin API (`SUPABASE_SERVICE_ROLE_KEY` in `backend/.env`). Re-running is safe — existing accounts are reused and profiles re-synced. Stock seeding replaces attestations on demo cameras.
+
+Buyer stock catalog loads from `GET /warehouses/catalog` (search, filters, sort, pagination).
 
 ---
 
