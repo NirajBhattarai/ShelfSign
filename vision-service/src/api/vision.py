@@ -18,13 +18,17 @@ class DetectRequest(BaseModel):
     password: Optional[str] = None
     nonce: Optional[str] = None
     includeFrame: bool = False
+    # Warehouse categories selected at create time (Chair / Monitor / Table).
+    allowedCategories: Optional[list[str]] = None
+    allowedSkus: Optional[list[str]] = None
 
 
 class StockItem(BaseModel):
     sku: str
     count: int
-    confidence: float
-    shelf: str
+    confidence: float = 1.0
+    shelf: str = "-"
+    category: Optional[str] = None
 
 
 class DetectResponse(BaseModel):
@@ -45,6 +49,7 @@ def detect(body: DetectRequest) -> DetectResponse:
     Count stock with YOLO/PyTorch.
     Provide either frameBase64, or camera host/username/password to capture live.
     Optional nonce overlays on the camera OSD before capture.
+    When allowedCategories is set, only those warehouse categories are counted.
     """
     try:
         if body.frameBase64:
@@ -53,17 +58,30 @@ def detect(body: DetectRequest) -> DetectResponse:
             except binascii.Error as e:
                 raise HTTPException(status_code=400, detail=f"invalid_frame: {e}")
             if body.nonce and body.host and body.username and body.password:
-                # Prefer live capture with nonce when credentials are present.
                 result = capture_and_detect(
-                    body.host, body.username, body.password, nonce=body.nonce
+                    body.host,
+                    body.username,
+                    body.password,
+                    nonce=body.nonce,
+                    allowed_categories=body.allowedCategories,
+                    allowed_skus=body.allowedSkus,
                 )
             else:
-                result = detect_stock(frame)
+                result = detect_stock(
+                    frame,
+                    allowed_categories=body.allowedCategories,
+                    allowed_skus=body.allowedSkus,
+                )
                 result["nonceBound"] = False
                 result["frameBytes"] = frame
         elif body.host and body.username and body.password:
             result = capture_and_detect(
-                body.host, body.username, body.password, nonce=body.nonce
+                body.host,
+                body.username,
+                body.password,
+                nonce=body.nonce,
+                allowed_categories=body.allowedCategories,
+                allowed_skus=body.allowedSkus,
             )
         else:
             raise HTTPException(

@@ -15,6 +15,34 @@ interface StockRow {
   shelf: string;
 }
 
+/** Warehouse category label ↔ stock SKU code. */
+const CATEGORY_TO_SKU: Record<string, string> = {
+  Chair: "CHAIR",
+  Monitor: "MONITOR",
+  Table: "TABLE",
+};
+
+const SKU_TO_CATEGORY: Record<string, string> = {
+  CHAIR: "Chair",
+  MONITOR: "Monitor",
+  TABLE: "Table",
+};
+
+function categoryForSku(sku: string): string {
+  return SKU_TO_CATEGORY[sku.toUpperCase()] ?? sku;
+}
+
+function skuForCategory(category: string): string {
+  return CATEGORY_TO_SKU[category] ?? category.toUpperCase().replace(/\s+/g, "_");
+}
+
+function parseNonNegativeInt(raw: string): number {
+  if (raw.trim() === "") return 0;
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return n;
+}
+
 export default function WarehouseDetailClient() {
   const { id } = useParams<{ id: string }>();
   const searchParams = useSearchParams();
@@ -121,7 +149,20 @@ export default function WarehouseDetailClient() {
   }
 
   function addStockRow() {
-    setStockRows((prev) => [...prev, { sku: "", quantity: 0, shelf: "" }]);
+    const used = new Set(stockRows.map((r) => r.sku.toUpperCase()));
+    const nextCategory =
+      (warehouse?.categories ?? []).find(
+        (c) => !used.has(skuForCategory(c)),
+      ) ?? warehouse?.categories?.[0] ??
+      "Chair";
+    setStockRows((prev) => [
+      ...prev,
+      {
+        sku: skuForCategory(nextCategory),
+        quantity: 0,
+        shelf: "",
+      },
+    ]);
   }
 
   function updateStockRow(
@@ -137,13 +178,17 @@ export default function WarehouseDetailClient() {
     setStockRows((prev) => prev.filter((_, i) => i !== index));
   }
 
+  function setStockQuantity(index: number, raw: string) {
+    updateStockRow(index, { quantity: parseNonNegativeInt(raw) });
+  }
+
   async function saveStock() {
     setSavingStock(true);
     try {
       const items = stockRows
         .map((r) => ({
-          sku: r.sku.trim(),
-          quantity: Number(r.quantity) || 0,
+          sku: r.sku.trim().toUpperCase(),
+          quantity: Math.max(0, Math.floor(Number(r.quantity) || 0)),
           shelf: r.shelf.trim(),
         }))
         .filter((r) => r.sku);
@@ -279,8 +324,8 @@ export default function WarehouseDetailClient() {
         </h2>
       </div>
       <p className="row-sub" style={{ marginBottom: 12 }}>
-        Buyers order these quantities. Camera attestation shows CMOS score and
-        YOLO finds as evidence — it does not overwrite this list.
+        Set how many of each warehouse item buyers can order. Camera attestation
+        is evidence only — it does not overwrite these amounts.
       </p>
       <div className="panel panel-pad" style={{ marginBottom: 8 }}>
         {stockLoading ? (
@@ -289,75 +334,117 @@ export default function WarehouseDetailClient() {
           <table className="data-table">
             <thead>
               <tr>
-                <th>SKU</th>
+                <th>Item</th>
                 <th>Qty</th>
-                <th>Shelf</th>
                 <th />
               </tr>
             </thead>
             <tbody>
               {stockRows.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="row-sub">
-                    No SKUs yet — add what buyers can order.
+                  <td colSpan={3} className="row-sub">
+                    No items yet — add Chair, Monitor, or Table from this
+                    warehouse.
                   </td>
                 </tr>
               ) : (
-                stockRows.map((row, index) => (
-                  <tr key={row.id ?? `new-${index}`}>
-                    <td>
-                      <input
-                        className="mono"
-                        value={row.sku}
-                        onChange={(e) =>
-                          updateStockRow(index, { sku: e.target.value })
-                        }
-                        placeholder="SKU"
-                        style={{ width: "100%" }}
-                      />
-                    </td>
-                    <td>
-                      <input
-                        className="mono"
-                        type="number"
-                        min={0}
-                        value={row.quantity}
-                        onChange={(e) =>
-                          updateStockRow(index, {
-                            quantity: Number(e.target.value),
-                          })
-                        }
-                        style={{ width: 88 }}
-                      />
-                    </td>
-                    <td>
-                      <input
-                        value={row.shelf}
-                        onChange={(e) =>
-                          updateStockRow(index, { shelf: e.target.value })
-                        }
-                        placeholder="Shelf"
-                        style={{ width: "100%" }}
-                      />
-                    </td>
-                    <td>
-                      <button
-                        className="link-btn"
-                        type="button"
-                        onClick={() => removeStockRow(index)}
-                      >
-                        Remove
-                      </button>
-                    </td>
-                  </tr>
-                ))
+                stockRows.map((row, index) => {
+                  const selectedCategory = categoryForSku(row.sku);
+                  const usedElsewhere = new Set(
+                    stockRows
+                      .filter((_, i) => i !== index)
+                      .map((r) => r.sku.toUpperCase()),
+                  );
+                  const options = (warehouse?.categories ?? []).filter(
+                    (c) =>
+                      skuForCategory(c) === row.sku.toUpperCase() ||
+                      !usedElsewhere.has(skuForCategory(c)),
+                  );
+                  // Keep current selection visible even if not in warehouse list.
+                  if (
+                    selectedCategory &&
+                    !options.includes(selectedCategory)
+                  ) {
+                    options.unshift(selectedCategory);
+                  }
+
+                  return (
+                    <tr key={row.id ?? `new-${index}`}>
+                      <td>
+                        <select
+                          className="input-line"
+                          aria-label="Item"
+                          value={selectedCategory}
+                          onChange={(e) =>
+                            updateStockRow(index, {
+                              sku: skuForCategory(e.target.value),
+                            })
+                          }
+                          style={{ width: "100%", minWidth: 140 }}
+                        >
+                          {options.map((c) => (
+                            <option key={c} value={c}>
+                              {c}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td>
+                        <input
+                          className="input-line mono"
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          step={1}
+                          aria-label={`Quantity for ${selectedCategory}`}
+                          value={row.quantity}
+                          onChange={(e) =>
+                            setStockQuantity(index, e.target.value)
+                          }
+                          onKeyDown={(e) => {
+                            if (e.key === "-" || e.key === "e" || e.key === "+") {
+                              e.preventDefault();
+                            }
+                          }}
+                          onBlur={() =>
+                            updateStockRow(index, {
+                              quantity: Math.max(
+                                0,
+                                Math.floor(Number(row.quantity) || 0),
+                              ),
+                            })
+                          }
+                          style={{ width: 100 }}
+                        />
+                      </td>
+                      <td>
+                        <button
+                          className="link-btn"
+                          type="button"
+                          onClick={() => removeStockRow(index)}
+                        >
+                          Remove
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
         )}
         <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
-          <button className="btn btn-ghost" type="button" onClick={addStockRow}>
-            Add SKU
+          <button
+            className="btn btn-ghost"
+            type="button"
+            onClick={addStockRow}
+            disabled={
+              stockLoading ||
+              ((warehouse?.categories.length ?? 0) > 0 &&
+                stockRows.length >= (warehouse?.categories.length ?? 0))
+            }
+          >
+            Add item
           </button>
           <button
             className="btn btn-primary"

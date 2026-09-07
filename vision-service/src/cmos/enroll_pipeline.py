@@ -103,47 +103,52 @@ def enroll_from_camera(
     never fall back to a fabricated identity."""
     client = ISAPIClient(host=host, user=username, password=password)
 
-    _force_night_mode(client, settle_s=settle_s, confirm_poll_s=confirm_poll_s)
+    from .camera_gate import camera_snapshot_lock
 
-    captures = []
-    for i in range(n_captures):
-        nonce = "".join(random.choices(string.hexdigits.lower()[:16], k=6))
-        set_osd_text(client, nonce, enabled=True, position_x=0, position_y=576)
-        time.sleep(0.5)  # OSD render settle
-        cap = capture_snapshot(client)
-        captures.append(cap.array)
-        if i < n_captures - 1:
-            time.sleep(capture_interval_s)
+    # Hold exclusive camera access for the whole burst so live MJPEG cannot
+    # interleave and trip deviceBusy mid-enrollment.
+    with camera_snapshot_lock(timeout_s=180.0):
+        _force_night_mode(client, settle_s=settle_s, confirm_poll_s=confirm_poll_s)
 
-    coords, reference_bits, flip_counts = select_stable_coords_from_burst(
-        captures, candidate_pool=stability_pool, n_final=candidate_bits,
-    )
-    burst_worst_flips = int(flip_counts.max())
-    measured_bytes = bits_to_bytes(reference_bits)
+        captures = []
+        for i in range(n_captures):
+            nonce = "".join(random.choices(string.hexdigits.lower()[:16], k=6))
+            set_osd_text(client, nonce, enabled=True, position_x=0, position_y=576)
+            time.sleep(0.5)  # OSD render settle
+            cap = capture_snapshot(client)
+            captures.append(cap.array)
+            if i < n_captures - 1:
+                time.sleep(capture_interval_s)
 
-    assumed_worst_flips = max(ASSUMED_WORST_CASE_FLIPS_FLOOR, burst_worst_flips * 3)
-    params = pick_bch_params(assumed_worst_flips=assumed_worst_flips, candidate_bits=len(measured_bytes) * 8)
+        coords, reference_bits, flip_counts = select_stable_coords_from_burst(
+            captures, candidate_pool=stability_pool, n_final=candidate_bits,
+        )
+        burst_worst_flips = int(flip_counts.max())
+        measured_bytes = bits_to_bytes(reference_bits)
 
-    result = fx_enroll(measured_bytes, params)
-    pk = derive_private_key(result.key)
-    address = derive_address(pk)
-    zero_key_material(result.key, pk)
-    del pk
+        assumed_worst_flips = max(ASSUMED_WORST_CASE_FLIPS_FLOOR, burst_worst_flips * 3)
+        params = pick_bch_params(assumed_worst_flips=assumed_worst_flips, candidate_bits=len(measured_bytes) * 8)
 
-    return EnrollmentRecord(
-        address=address,
-        helper_hex=result.helper.hex(),
-        coordinates=coords,
-        bch_params={
-            "m": params.m, "t": params.t, "n": params.n,
-            "data_bytes": params.data_bytes, "buffer_bytes": params.buffer_bytes,
-            "assumed_worst_flips": params.assumed_worst_flips,
-            "achieved_margin": params.achieved_margin,
-        },
-        candidate_bits=len(measured_bytes) * 8,
-        burst_worst_flips=burst_worst_flips,
-        enrolled_at=time.time(),
-    )
+        result = fx_enroll(measured_bytes, params)
+        pk = derive_private_key(result.key)
+        address = derive_address(pk)
+        zero_key_material(result.key, pk)
+        del pk
+
+        return EnrollmentRecord(
+            address=address,
+            helper_hex=result.helper.hex(),
+            coordinates=coords,
+            bch_params={
+                "m": params.m, "t": params.t, "n": params.n,
+                "data_bytes": params.data_bytes, "buffer_bytes": params.buffer_bytes,
+                "assumed_worst_flips": params.assumed_worst_flips,
+                "achieved_margin": params.achieved_margin,
+            },
+            candidate_bits=len(measured_bytes) * 8,
+            burst_worst_flips=burst_worst_flips,
+            enrolled_at=time.time(),
+        )
 
 
 def regenerate_from_camera(

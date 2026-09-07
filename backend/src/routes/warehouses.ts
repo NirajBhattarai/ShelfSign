@@ -746,7 +746,7 @@ warehouseRouter.post("/:id/count-live", async (req: AuthedRequest, res) => {
   let cameraQuery = supabase
     .from("cameras")
     .select(
-      "id, supplier_id, host, username, password, cmos_account, enrollment_status, label",
+      "id, supplier_id, warehouse_id, host, username, password, cmos_account, enrollment_status, label",
     )
     .eq("warehouse_id", warehouseId)
     .order("created_at", { ascending: true })
@@ -756,7 +756,7 @@ warehouseRouter.post("/:id/count-live", async (req: AuthedRequest, res) => {
     cameraQuery = supabase
       .from("cameras")
       .select(
-        "id, supplier_id, host, username, password, cmos_account, enrollment_status, label",
+        "id, supplier_id, warehouse_id, host, username, password, cmos_account, enrollment_status, label",
       )
       .eq("warehouse_id", warehouseId)
       .eq("id", cameraIdHint)

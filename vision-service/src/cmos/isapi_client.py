@@ -125,11 +125,27 @@ class ISAPIClient:
         """Fetch a single JPEG still from /ISAPI/Streaming/channels/<ch>/picture
         -- the ONLY capture path used for fingerprinting, never the
         H.264/H.265 video stream (PRNU-style analysis needs the sensor's own
-        still-image pipeline, not a re-encoded video frame)."""
+        still-image pipeline, not a re-encoded video frame).
+
+        Retries on HTTP 503 / deviceBusy — common when a live MJPEG preview is
+        also polling the same endpoint.
+        """
+        from .camera_gate import camera_snapshot_lock
+
         ch = channel or self.channel
-        r = self.get(f"/ISAPI/Streaming/channels/{ch}/picture")
-        if not r.ok:
-            raise ISAPIError(
-                "GET", f"/ISAPI/Streaming/channels/{ch}/picture", r.status_code, r.text
-            )
-        return r.content
+        path = f"/ISAPI/Streaming/channels/{ch}/picture"
+        attempts = 8
+        last_err: Optional[ISAPIError] = None
+        with camera_snapshot_lock():
+            for i in range(attempts):
+                r = self.get(path)
+                if r.ok:
+                    return r.content
+                last_err = ISAPIError("GET", path, r.status_code, r.text)
+                busy = r.status_code == 503 or "deviceBusy" in (r.text or "")
+                if not busy or i == attempts - 1:
+                    raise last_err
+                # Back off: 0.4s, 0.8s, 1.2s, … capped at 2.5s
+                time.sleep(min(2.5, 0.4 * (i + 1)))
+        assert last_err is not None
+        raise last_err

@@ -1,11 +1,10 @@
 import "dotenv/config";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash } from "node:crypto";
 import { supabase } from "../src/services/supabase.js";
 
-// Seeds warehouses + catalog placeholder cameras + attestations for demo
-// suppliers so buyers have searchable/filterable stock. Cameras are pending
-// (no stub host/user/pass); live attest uses system_settings + real PUF.
-// Safe to re-run: warehouses reused; cameras cleared of stub creds; attestations replaced.
+// Seeds warehouses + catalog cameras + attestations for demo suppliers.
+// Catalog is Chair / Monitor / Table only (matches YOLO stock classes).
+// Safe to re-run: warehouses reused; attestations replaced.
 
 interface StockItem {
   sku: string;
@@ -27,96 +26,79 @@ interface DemoWarehouse {
 const DEMO_WAREHOUSES: DemoWarehouse[] = [
   {
     supplierEmail: "demo.supplier1@example.com",
-    name: "Aisle A — Staples",
+    name: "Showroom Floor A",
     location: "Kathmandu · Ground floor",
-    categories: ["Groceries"],
+    categories: ["Chair", "Table"],
     imageUrl:
-      "https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?auto=format&fit=crop&w=1200&q=70",
-    cameraLabel: "Aisle A overhead",
+      "https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&w=1200&q=70",
+    cameraLabel: "Floor A overhead",
     items: [
-      { sku: "RICE-25KG", count: 42, confidence: 0.93, shelf: "A1" },
-      { sku: "DAL-1KG", count: 88, confidence: 0.91, shelf: "A2" },
-      { sku: "OIL-5L", count: 36, confidence: 0.89, shelf: "A3" },
-      { sku: "SUGAR-50KG", count: 14, confidence: 0.87, shelf: "A4" },
-      { sku: "FLOUR-10KG", count: 7, confidence: 0.9, shelf: "A5" },
+      { sku: "CHAIR", count: 24, confidence: 1, shelf: "-" },
+      { sku: "TABLE", count: 8, confidence: 1, shelf: "-" },
     ],
   },
   {
     supplierEmail: "demo.supplier1@example.com",
-    name: "Hardware Bay",
+    name: "AV Bay",
     location: "Kathmandu · Yard",
-    categories: ["Hardware"],
+    categories: ["Monitor", "Chair"],
     imageUrl:
-      "https://images.unsplash.com/photo-1504917595217-d4dc5ebe6122?auto=format&fit=crop&w=1200&q=70",
-    cameraLabel: "Bay cam 1",
+      "https://images.unsplash.com/photo-1524758631624-e2822e304c36?auto=format&fit=crop&w=1200&q=70",
+    cameraLabel: "AV bay cam",
     items: [
-      { sku: "HAMMER-STD", count: 24, confidence: 0.92, shelf: "H1" },
-      { sku: "NAIL-BOX-500", count: 61, confidence: 0.88, shelf: "H2" },
-      { sku: "PIPE-PVC-2M", count: 9, confidence: 0.86, shelf: "H3" },
-      { sku: "WRENCH-SET", count: 3, confidence: 0.9, shelf: "H4" },
+      { sku: "MONITOR", count: 18, confidence: 1, shelf: "-" },
+      { sku: "CHAIR", count: 12, confidence: 1, shelf: "-" },
     ],
   },
   {
     supplierEmail: "demo.supplier2@example.com",
-    name: "Cold Room 1",
-    location: "Balaju · Cold chain",
-    categories: ["Frozen goods", "Dairy"],
+    name: "Office Pack Line",
+    location: "Balaju",
+    categories: ["Chair", "Monitor", "Table"],
     imageUrl:
-      "https://images.unsplash.com/photo-1604719312566-8912e9227c6a?auto=format&fit=crop&w=1200&q=70",
-    cameraLabel: "Cold room cam",
+      "https://images.unsplash.com/photo-1497366811353-6870744d04b2?auto=format&fit=crop&w=1200&q=70",
+    cameraLabel: "Pack line cam",
     items: [
-      { sku: "FROZEN-PEAS-1KG", count: 120, confidence: 0.94, shelf: "C1" },
-      { sku: "CHICKEN-1KG", count: 45, confidence: 0.9, shelf: "C2" },
-      { sku: "ICE-CREAM-12", count: 18, confidence: 0.88, shelf: "C3" },
-      { sku: "MILK-1L", count: 6, confidence: 0.91, shelf: "C4" },
-      { sku: "BUTTER-500G", count: 0, confidence: 0.85, shelf: "C5" },
+      { sku: "CHAIR", count: 40, confidence: 1, shelf: "-" },
+      { sku: "MONITOR", count: 22, confidence: 1, shelf: "-" },
+      { sku: "TABLE", count: 10, confidence: 1, shelf: "-" },
     ],
   },
   {
     supplierEmail: "demo.supplier3@example.com",
     name: "Steel Yard East",
     location: "Biratnagar",
-    categories: ["Steel", "Construction"],
+    categories: ["Table", "Chair"],
     imageUrl:
-      "https://images.unsplash.com/photo-1504307651254-35680f356dfd?auto=format&fit=crop&w=1200&q=70",
+      "https://images.unsplash.com/photo-1518455027359-f3f8164ba9c5?auto=format&fit=crop&w=1200&q=70",
     cameraLabel: "Yard east cam",
     items: [
-      { sku: "REBAR-12MM", count: 210, confidence: 0.89, shelf: "S1" },
-      { sku: "ANGLE-IRON-3M", count: 54, confidence: 0.87, shelf: "S2" },
-      { sku: "SHEET-GI-8FT", count: 28, confidence: 0.9, shelf: "S3" },
-      { sku: "CEMENT-50KG", count: 4, confidence: 0.86, shelf: "S4" },
+      { sku: "TABLE", count: 15, confidence: 1, shelf: "-" },
+      { sku: "CHAIR", count: 30, confidence: 1, shelf: "-" },
     ],
   },
   {
     supplierEmail: "demo.supplier4@example.com",
-    name: "Seed Storefront",
+    name: "Display Wall",
     location: "Pokhara",
-    categories: ["Seeds", "Fertilizer"],
+    categories: ["Monitor"],
     imageUrl:
-      "https://images.unsplash.com/photo-1464226184884-fa280b87c309?auto=format&fit=crop&w=1200&q=70",
-    cameraLabel: "Storefront cam",
-    items: [
-      { sku: "SEED-RICE-HYB", count: 75, confidence: 0.92, shelf: "F1" },
-      { sku: "SEED-MAIZE-10KG", count: 33, confidence: 0.9, shelf: "F2" },
-      { sku: "FERT-UREA-50KG", count: 19, confidence: 0.88, shelf: "F3" },
-      { sku: "FERT-NPK-25KG", count: 11, confidence: 0.87, shelf: "F4" },
-      { sku: "SEED-VEG-MIX", count: 2, confidence: 0.84, shelf: "F5" },
-    ],
+      "https://images.unsplash.com/photo-1467232004584-a241de8bcf5d?auto=format&fit=crop&w=1200&q=70",
+    cameraLabel: "Display cam",
+    items: [{ sku: "MONITOR", count: 28, confidence: 1, shelf: "-" }],
   },
   {
     supplierEmail: "demo.supplier5@example.com",
     name: "Parts Rack 2",
     location: "Birgunj",
-    categories: ["Auto parts", "Tires"],
+    categories: ["Chair", "Table", "Monitor"],
     imageUrl:
       "https://images.unsplash.com/photo-1486262715619-67b85e0b08d3?auto=format&fit=crop&w=1200&q=70",
     cameraLabel: "Rack 2 cam",
     items: [
-      { sku: "TIRE-185-65R15", count: 40, confidence: 0.93, shelf: "P1" },
-      { sku: "BRAKE-PAD-SET", count: 22, confidence: 0.9, shelf: "P2" },
-      { sku: "OIL-FILTER-STD", count: 67, confidence: 0.91, shelf: "P3" },
-      { sku: "SPARK-PLUG-4", count: 8, confidence: 0.89, shelf: "P4" },
-      { sku: "BATTERY-12V", count: 1, confidence: 0.86, shelf: "P5" },
+      { sku: "CHAIR", count: 16, confidence: 1, shelf: "-" },
+      { sku: "TABLE", count: 6, confidence: 1, shelf: "-" },
+      { sku: "MONITOR", count: 9, confidence: 1, shelf: "-" },
     ],
   },
 ];
@@ -178,8 +160,6 @@ async function seedWarehouse(demo: DemoWarehouse, supplierId: string) {
       .eq("id", warehouseId);
   }
 
-  // Catalog-only placeholder camera (label only). Live attest uses
-  // system_settings Hikvision + real PUF enroll — never stub host/user/pass.
   const catalogAccount = `catalog_${hash(demo.name).slice(0, 12)}`;
 
   const { data: existingCam } = await supabase
@@ -206,93 +186,85 @@ async function seedWarehouse(demo: DemoWarehouse, supplierId: string) {
       })
       .select("id")
       .single();
-    if (error || !data)
-      throw error ?? new Error(`Failed camera ${demo.cameraLabel}`);
+    if (error || !data) throw error ?? new Error(`Failed camera ${demo.name}`);
     cameraId = data.id;
   } else {
     await supabase
       .from("cameras")
       .update({
-        cmos_account: null,
-        enrollment_status: "pending",
         host: null,
         username: null,
         password: null,
+        enrollment_status: "pending",
+        cmos_account: null,
       })
       .eq("id", cameraId);
   }
 
-  // Declared inventory (orderable). Attestations below are optional camera proof.
-  await supabase.from("warehouse_stock").delete().eq("warehouse_id", warehouseId);
-  const { error: stockError } = await supabase.from("warehouse_stock").insert(
-    demo.items.map((item) => ({
-      warehouse_id: warehouseId,
-      supplier_id: supplierId,
-      sku: item.sku,
-      quantity: item.count,
-      shelf: item.shelf,
-      updated_at: new Date().toISOString(),
-    })),
-  );
-  if (stockError) throw stockError;
-
-  // Replace prior demo attestations for this camera (evidence only).
   await supabase.from("attestations").delete().eq("camera_id", cameraId);
 
-  const nonce = `0x${randomBytes(8).toString("hex")}`;
-  const capturedAt = new Date().toISOString();
-  const payload = JSON.stringify(demo.items);
+  const nonce = `0x${hash(`nonce:${demo.name}:${Date.now()}`).slice(0, 32)}`;
+  const imageHash = `0x${hash(`img:${demo.name}`)}`;
+  const modelHash = `0x${hash("yolov8n-stock-v1")}`;
+  const total = demo.items.reduce((s, i) => s + i.count, 0);
 
-  const { error: attError } = await supabase.from("attestations").insert({
+  const { error: attErr } = await supabase.from("attestations").insert({
     camera_id: cameraId,
     supplier_id: supplierId,
     camera_account: catalogAccount,
     nonce,
     image_cid: null,
-    image_hash: hash(`${demo.name}:${payload}`),
-    model: "yolov8n-stock-demo",
-    model_hash: hash("yolov8n-stock-demo"),
-    items: demo.items.map((i) => ({
-      ...i,
-      // Seeded "detected" evidence can match declared for demos; live attest may differ.
-    })),
+    image_hash: imageHash,
+    model: "yolov8n-stock-v1",
+    model_hash: modelHash,
+    items: demo.items,
     cmos_score: 1,
-    detection_count: demo.items.reduce((n, i) => n + i.count, 0),
-    captured_at: capturedAt,
+    detection_count: total,
+    captured_at: new Date().toISOString(),
   });
-  if (attError) throw attError;
+  if (attErr) throw attErr;
+
+  // Declared warehouse stock matches category SKUs (integer totals).
+  await supabase.from("warehouse_stock").delete().eq("warehouse_id", warehouseId);
+  if (demo.items.length) {
+    const { error: stockErr } = await supabase.from("warehouse_stock").insert(
+      demo.items.map((i) => ({
+        warehouse_id: warehouseId,
+        supplier_id: supplierId,
+        sku: i.sku,
+        quantity: i.count,
+        shelf: i.shelf,
+      })),
+    );
+    if (stockErr) throw stockErr;
+  }
 
   console.log(
-    `  ${demo.name.padEnd(22)} ${demo.items.length} SKUs · ${demo.categories.join(", ")}`,
+    `  ${demo.name.padEnd(22)} ${String(demo.items.length).padStart(2)} SKUs · ${demo.categories.join(", ")}`,
   );
 }
 
 async function main() {
-  console.log("Seeding demo stock for suppliers…\n");
+  console.log("Seeding Chair / Monitor / Table demo stock…\n");
 
-  const supplierIds = new Map<string, string>();
-  for (const email of [
-    ...new Set(DEMO_WAREHOUSES.map((w) => w.supplierEmail)),
-  ]) {
-    const id = await findUserIdByEmail(email);
-    if (!id) {
-      console.error(
-        `Missing account ${email} — run \`npm run seed:demo\` first.`,
-      );
-      process.exit(1);
+  // Ensure canonical categories exist (idempotent with migration 0007).
+  await supabase.from("categories").delete().neq("name", "");
+  await supabase.from("categories").insert([
+    { name: "Chair" },
+    { name: "Monitor" },
+    { name: "Table" },
+  ]);
+
+  for (const demo of DEMO_WAREHOUSES) {
+    const supplierId = await findUserIdByEmail(demo.supplierEmail);
+    if (!supplierId) {
+      console.warn(`skip ${demo.name}: no user ${demo.supplierEmail}`);
+      continue;
     }
-    supplierIds.set(email, id);
+    await seedWarehouse(demo, supplierId);
   }
 
-  for (const warehouse of DEMO_WAREHOUSES) {
-    const supplierId = supplierIds.get(warehouse.supplierEmail)!;
-    await seedWarehouse(warehouse, supplierId);
-  }
-
-  const skuCount = DEMO_WAREHOUSES.reduce((n, w) => n + w.items.length, 0);
-  console.log(
-    `\nDone. ${DEMO_WAREHOUSES.length} warehouses · ${skuCount} SKUs searchable in /buyer/stock`,
-  );
+  console.log(`\nDone. ${DEMO_WAREHOUSES.length} warehouses · Chair/Monitor/Table only`);
 }
 
 main().catch((err) => {

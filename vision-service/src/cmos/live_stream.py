@@ -16,18 +16,25 @@ from .isapi_client import ISAPIClient
 BOUNDARY = "shelfsignframe"
 
 
-def mjpeg_frames(host: str, username: str, password: str, interval_s: float = 0.5) -> Iterator[bytes]:
+def mjpeg_frames(host: str, username: str, password: str, interval_s: float = 1.25) -> Iterator[bytes]:
     """Yields multipart/x-mixed-replace chunks until the camera errors out
     (unreachable, wrong credentials) or the caller stops iterating (browser
     tab closed -- the ASGI layer stops calling next() once the connection
-    drops)."""
+    drops).
+
+    Default poll is deliberately slow (~0.8 fps) so enroll/challenge snapshot
+    bursts are less likely to hit Hikvision deviceBusy.
+    """
     client = ISAPIClient(host=host, user=username, password=password)
     boundary = BOUNDARY.encode()
     while True:
         try:
             frame = client.snapshot_bytes()
         except Exception:
-            break
+            # Brief pause then retry — don't tear down the browser stream on
+            # a single deviceBusy while enrollment is holding the lock.
+            time.sleep(max(interval_s, 1.0))
+            continue
         yield (
             b"--" + boundary + b"\r\n"
             b"Content-Type: image/jpeg\r\n"

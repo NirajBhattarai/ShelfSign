@@ -35,6 +35,28 @@ OSD_CROP = (0, 0, 260, 190)
 OSD_FUZZY_MATCH_THRESHOLD = 0.5
 
 
+_NIGHT_MODE_SAT_THRESHOLD = 5.0   # saturation variance below which we consider night mode confirmed
+_NIGHT_MODE_CONFIRM_POLL_S = 20.0  # max time to poll (matches enroll_pipeline's confirm_poll_s default)
+_NIGHT_MODE_CONFIRM_INTERVAL_S = 1.0
+
+
+def _confirm_night_mode(client: ISAPIClient, confirm_poll_s: float = _NIGHT_MODE_CONFIRM_POLL_S) -> None:
+    """Poll until saturation_variance drops below threshold (night/mono mode
+    collapses chroma to ~0) or the timeout elapses. Mirrors enroll_pipeline's
+    _force_night_mode confirmation loop — without this, the challenge capture
+    can land in day mode if the IRCUT mechanical switch is still in transit,
+    causing bit-flip rates that exceed BCH correction capacity and triggering
+    'PUF key regeneration failed'."""
+    t0 = time.monotonic()
+    while time.monotonic() - t0 < confirm_poll_s:
+        cap = capture_snapshot(client)
+        if saturation_variance(cap) < _NIGHT_MODE_SAT_THRESHOLD:
+            return
+        time.sleep(_NIGHT_MODE_CONFIRM_INTERVAL_S)
+    # Timeout — proceed anyway; if the camera can't settle, regen will either
+    # succeed (camera was already in night mode) or fail with a clear BCH error.
+
+
 def apply_required_state(client: ISAPIClient, required_state: dict) -> float:
     wait_s = 0.0
 
@@ -93,6 +115,12 @@ def ocr_osd_region(cap, box=OSD_CROP) -> list[str]:
     except ImportError:
         return []
 
+    try:
+        pytesseract.get_tesseract_version()
+    except Exception:
+        # Binary missing — treat OCR as unavailable (hackathon / bare install).
+        return []
+
     x0, y0, x1, y1 = box
     base = cap.image.crop((x0, y0, x1, y1)).convert("L")
     base = base.resize((base.width * 4, base.height * 4))
@@ -103,7 +131,10 @@ def ocr_osd_region(cap, box=OSD_CROP) -> list[str]:
         ImageOps.autocontrast(base, cutoff=1),
         ImageOps.autocontrast(ImageOps.invert(base), cutoff=1),
     ):
-        raw = pytesseract.image_to_string(variant, config="--psm 6")
+        try:
+            raw = pytesseract.image_to_string(variant, config="--psm 6")
+        except Exception:
+            continue
         for line in raw.splitlines():
             line = line.strip()
             if line and line not in seen:
@@ -170,95 +201,107 @@ def respond_to_challenge(
     )
 
     client = ISAPIClient(host=host, user=username, password=password)
-    wait_s = apply_required_state(client, required_state)
-    if settle_override_s is not None:
-        wait_s = settle_override_s
-    time.sleep(wait_s)
 
-    cap = capture_snapshot(client)
-    mean_lum = mean_luminance(cap)
-    sat_var = saturation_variance(cap)
-    osd_decoded = ocr_osd_nonce(cap, expected=nonce)
-    osd_similarity = similarity(osd_decoded, nonce) if nonce else 0.0
+    from .camera_gate import camera_snapshot_lock
 
-    # If OCR isn't available (no tesseract), don't fail the physical PUF
-    # path — we still regenerated from a nonce-bound capture.
-    ocr_available = bool(osd_decoded) or _tesseract_available()
-    if ocr_available and osd_decoded:
-        osd_match = osd_similarity >= OSD_FUZZY_MATCH_THRESHOLD
-    else:
-        osd_match = True  # OSD was set; OCR optional for hackathon path
+    with camera_snapshot_lock(timeout_s=120.0):
+        wait_s = apply_required_state(client, required_state)
+        if settle_override_s is not None:
+            wait_s = settle_override_s
+        time.sleep(wait_s)
 
-    bits = extract_bits(cap.array, coords)
-    measured_bytes = bits_to_bytes(bits)
+        # Confirm night mode actually took effect before extracting PUF bits.
+        # Enrollment does the same poll in _force_night_mode; without it, a slow
+        # IRCUT switch produces a day-mode frame whose pixel values shift enough
+        # to exceed BCH correction capacity (t ≤ 30 for 256-bit candidate space).
+        if required_state.get("colorMode") == "mono":
+            _confirm_night_mode(client)
 
-    regen_failed = False
-    corrected_errors = None
-    fx_result = None
-    try:
-        fx_result = fx_regenerate(measured_bytes, helper, params)
-        corrected_errors = fx_result.corrected_bit_errors
-    except RuntimeError:
-        regen_failed = True
+        cap = capture_snapshot(client)
+        mean_lum = mean_luminance(cap)
+        sat_var = saturation_variance(cap)
+        osd_decoded = ocr_osd_nonce(cap, expected=nonce)
+        osd_similarity = similarity(osd_decoded, nonce) if nonce else 0.0
 
-    address_match = False
-    signature = None
-    signing_error = None
-
-    body = {
-        "cameraId": record.address,
-        "sequence": sequence,
-        "prevHash": prev_hash,
-        "challengeId": challenge_id,
-        "challengeResponse": {
-            "osdNonce": nonce,
-            "irLevel": ir_level,
-            "brightness": brightness,
-            "colorMode": color_mode,
-        },
-        "measured": {
-            "meanLuminance": round(mean_lum, 2),
-            "saturationVariance": round(sat_var, 2),
-            "osdDecoded": osd_decoded,
-            "osdSimilarity": round(osd_similarity, 3),
-            "correctedBitErrors": corrected_errors,
-        },
-        "verdict": {
-            "claim": "clear" if osd_match and not regen_failed else "mismatch",
-            "confidence": (
-                round(min(0.95, 0.5 + 0.45 * max(osd_similarity, 0.5)), 2)
-                if not regen_failed
-                else 0.0
-            ),
-        },
-        "enclaveAttestation": "0x",
-        "timestamp": int(cap.timestamp),
-    }
-
-    if regen_failed or fx_result is None:
-        signing_error = "PUF key regeneration failed"
-        body["signature"] = None
-        body["signingError"] = signing_error
-    else:
-        from .puf_keys import derive_address, derive_private_key
-
-        # Address check uses a copy of key material so sign_and_zero still
-        # has the original for signing.
-        pk = derive_private_key(bytearray(fx_result.key))
-        regen_address = derive_address(pk)
-        del pk
-        address_match = regen_address.lower() == record.address.lower()
-
-        if address_match:
-            message_hash = keccak(canonical_bytes_for_signing(body))
-            signature = sign_and_zero(fx_result.key, message_hash)
-            body["signature"] = signature
+        # If OCR isn't available (no tesseract), don't fail the physical PUF
+        # path — we still regenerated from a nonce-bound capture.
+        ocr_available = bool(osd_decoded) or _tesseract_available()
+        if ocr_available and osd_decoded:
+            osd_match = osd_similarity >= OSD_FUZZY_MATCH_THRESHOLD
         else:
-            body["signature"] = None
-            body["signingError"] = "regenerated_address_mismatch"
-            signing_error = body["signingError"]
+            osd_match = True  # OSD was set; OCR optional for hackathon path
 
-    image_hash = hashlib.sha256(cap.raw_bytes).hexdigest()
+        bits = extract_bits(cap.array, coords)
+        measured_bytes = bits_to_bytes(bits)
+
+        regen_failed = False
+        corrected_errors = None
+        fx_result = None
+        try:
+            fx_result = fx_regenerate(measured_bytes, helper, params)
+            corrected_errors = fx_result.corrected_bit_errors
+        except RuntimeError:
+            regen_failed = True
+
+        address_match = False
+        signature = None
+        signing_error = None
+
+        body = {
+            "cameraId": record.address,
+            "sequence": sequence,
+            "prevHash": prev_hash,
+            "challengeId": challenge_id,
+            "challengeResponse": {
+                "osdNonce": nonce,
+                "irLevel": ir_level,
+                "brightness": brightness,
+                "colorMode": color_mode,
+            },
+            "measured": {
+                "meanLuminance": round(mean_lum, 2),
+                "saturationVariance": round(sat_var, 2),
+                "osdDecoded": osd_decoded,
+                "osdSimilarity": round(osd_similarity, 3),
+                "correctedBitErrors": corrected_errors,
+            },
+            "verdict": {
+                "claim": "clear" if osd_match and not regen_failed else "mismatch",
+                "confidence": (
+                    round(min(0.95, 0.5 + 0.45 * max(osd_similarity, 0.5)), 2)
+                    if not regen_failed
+                    else 0.0
+                ),
+            },
+            "enclaveAttestation": "0x",
+            "timestamp": int(cap.timestamp),
+        }
+
+        if regen_failed or fx_result is None:
+            signing_error = "PUF key regeneration failed"
+            body["signature"] = None
+            body["signingError"] = signing_error
+        else:
+            from .puf_keys import derive_address, derive_private_key
+
+            # Address check uses a copy of key material so sign_and_zero still
+            # has the original for signing.
+            pk = derive_private_key(bytearray(fx_result.key))
+            regen_address = derive_address(pk)
+            del pk
+            address_match = regen_address.lower() == record.address.lower()
+
+            if address_match:
+                message_hash = keccak(canonical_bytes_for_signing(body))
+                signature = sign_and_zero(fx_result.key, message_hash)
+                body["signature"] = signature
+            else:
+                body["signature"] = None
+                body["signingError"] = "regenerated_address_mismatch"
+                signing_error = body["signingError"]
+
+        image_hash = hashlib.sha256(cap.raw_bytes).hexdigest()
+        frame_bytes = cap.raw_bytes
 
     return {
         "match": bool(address_match and osd_match and signature),
@@ -273,7 +316,7 @@ def respond_to_challenge(
         "osdDecoded": osd_decoded,
         # Same JPEG used for PUF regen — backend runs YOLO on this frame so
         # stock counts and silicon identity share one live capture.
-        "frameBytes": cap.raw_bytes,
+        "frameBytes": frame_bytes,
     }
 
 

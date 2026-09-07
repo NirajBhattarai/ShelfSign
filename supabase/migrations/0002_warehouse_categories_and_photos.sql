@@ -17,10 +17,7 @@ create policy "categories select all" on categories
   for select using (true);
 
 insert into categories (name) values
-  ('Groceries'), ('Hardware'), ('Furniture'), ('Agriculture'),
-  ('Frozen goods'), ('Dairy'), ('Steel'), ('Construction'),
-  ('Seeds'), ('Fertilizer'), ('Auto parts'), ('Tires'),
-  ('Electronics'), ('Textiles'), ('Chairs'), ('Tables');
+  ('Chair'), ('Monitor'), ('Table');
 
 alter table warehouses add column categories text[] not null default '{}';
 alter table warehouses add column image_url text;

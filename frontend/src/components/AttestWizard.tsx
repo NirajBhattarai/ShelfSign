@@ -10,6 +10,7 @@ interface StockItem {
   count: number;
   confidence: number;
   shelf: string;
+  category?: string;
 }
 
 interface AttestResult {
@@ -214,21 +215,25 @@ export function AttestWizard({
           <table className="data-table">
             <thead>
               <tr>
-                <th>SKU</th>
-                <th>Shelf</th>
-                <th>Qty</th>
-                <th>Conf.</th>
+                <th>Category</th>
+                <th>Total</th>
               </tr>
             </thead>
             <tbody>
               {items.map((item) => (
-                <tr key={`${item.sku}-${item.shelf}`}>
-                  <td className="mono">{item.sku}</td>
-                  <td>{item.shelf}</td>
+                <tr key={item.sku}>
+                  <td className="mono">{item.category ?? item.sku}</td>
                   <td className="mono">{item.count}</td>
-                  <td className="mono">{Math.round(item.confidence * 100)}%</td>
                 </tr>
               ))}
+              <tr>
+                <td>
+                  <strong>Sum</strong>
+                </td>
+                <td className="mono">
+                  <strong>{totalUnits}</strong>
+                </td>
+              </tr>
             </tbody>
           </table>
         </div>

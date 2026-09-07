@@ -33,6 +33,8 @@ def capture_and_detect(
     username: str,
     password: str,
     nonce: Optional[str] = None,
+    allowed_categories: Optional[list] = None,
+    allowed_skus: Optional[list] = None,
 ) -> dict:
     """
     Capture from camera (optionally binding nonce on OSD) and run YOLO stock count.
@@ -43,7 +45,11 @@ def capture_and_detect(
         client = ISAPIClient(host=host, user=username, password=password)
         frame = capture_snapshot(client).raw_bytes
 
-    detection = detect_stock(frame)
+    detection = detect_stock(
+        frame,
+        allowed_categories=allowed_categories,
+        allowed_skus=allowed_skus,
+    )
     detection["frameBase64"] = None  # filled by API if requested
     detection["frameBytes"] = frame
     detection["nonceBound"] = bool(nonce)

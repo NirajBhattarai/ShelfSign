@@ -16,6 +16,7 @@ export interface CameraForAttest {
   cmos_account: string | null;
   enrollment_status: string;
   label?: string | null;
+  warehouse_id?: string | null;
 }
 
 export interface FullAttestResult {
@@ -258,10 +259,32 @@ export async function runFullAttestation(
   let detectionCount = 0;
   let engine = "ultralytics-yolov8+torch";
 
+  // Only count categories the supplier selected for this warehouse.
+  let allowedCategories: string[] = [];
+  if (enrolledCamera.warehouse_id) {
+    const { data: wh } = await supabase
+      .from("warehouses")
+      .select("categories")
+      .eq("id", enrolledCamera.warehouse_id)
+      .maybeSingle();
+    allowedCategories = (wh?.categories as string[] | null) ?? [];
+  }
+
   try {
     const detectBody = challengeFrameBase64
-      ? { frameBase64: challengeFrameBase64, includeFrame: false }
-      : { host, username, password, nonce, includeFrame: false };
+      ? {
+          frameBase64: challengeFrameBase64,
+          includeFrame: false,
+          allowedCategories,
+        }
+      : {
+          host,
+          username,
+          password,
+          nonce,
+          includeFrame: false,
+          allowedCategories,
+        };
 
     const detectRes = await fetch(`${visionUrl}/vision/detect`, {
       method: "POST",
