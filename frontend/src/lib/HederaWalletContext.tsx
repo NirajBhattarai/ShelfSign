@@ -68,16 +68,21 @@ export function HederaWalletProvider({ children }: { children: ReactNode }) {
       }
 
       if (saved.mode === "demo" && demoReady && saved.accountId) {
-        if (!cancelled) {
-          setWallet({
-            mode: "demo",
-            accountId: saved.accountId,
-            network:
-              process.env.NEXT_PUBLIC_HEDERA_NETWORK === "mainnet"
-                ? "hedera:mainnet"
-                : "hedera:testnet",
-            label: "Demo testnet payer",
-          });
+        const accountId = process.env.NEXT_PUBLIC_HEDERA_PAYER_ID?.trim();
+        const key = process.env.NEXT_PUBLIC_HEDERA_PAYER_KEY?.trim();
+        if (accountId && key) {
+          setSessionPayer(accountId, key);
+          if (!cancelled) {
+            setWallet({
+              mode: "demo",
+              accountId,
+              network:
+                process.env.NEXT_PUBLIC_HEDERA_NETWORK === "mainnet"
+                  ? "hedera:mainnet"
+                  : "hedera:testnet",
+              label: "Demo testnet payer",
+            });
+          }
         }
         return;
       }

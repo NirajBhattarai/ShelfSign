@@ -187,7 +187,14 @@ export async function createWalletConnectClientSigner(
     getConnector(),
     import("@hiero-ledger/sdk"),
   ]);
-  const { AccountId, Hbar, TokenId, TransferTransaction, TransactionId } = sdk;
+  const {
+    AccountId,
+    Client,
+    Hbar,
+    TokenId,
+    TransferTransaction,
+    TransactionId,
+  } = sdk;
 
   const dappSigner =
     connector.signers.find((s) => s.getAccountId().toString() === accountId) ??
@@ -197,6 +204,10 @@ export async function createWalletConnectClientSigner(
   }
 
   const payer = AccountId.fromString(accountId);
+  const network =
+    process.env.NEXT_PUBLIC_HEDERA_NETWORK === "mainnet"
+      ? "mainnet"
+      : "testnet";
 
   return {
     accountId: payer.toString(),
@@ -226,7 +237,16 @@ export async function createWalletConnectClientSigner(
       }
       tx.setTransactionId(TransactionId.generate(AccountId.fromString(feePayer)));
 
-      // Freeze via wallet network, then request signature in HashPack etc.
+      // Match @x402/hedera local signer: freeze against testnet/mainnet nodes
+      // before asking the wallet for the payer signature.
+      const client =
+        network === "mainnet" ? Client.forMainnet() : Client.forTestnet();
+      try {
+        tx.freezeWith(client);
+      } finally {
+        client.close();
+      }
+
       const signed = await dappSigner.signTransaction(tx);
       const bytes =
         typeof signed.toBytes === "function"

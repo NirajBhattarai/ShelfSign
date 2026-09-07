@@ -7,14 +7,12 @@ import {
   PrivateKey,
 } from "@x402/hedera";
 import type { PaymentRequirements } from "./x402.js";
-import {
-  buildPaymentRequirements,
-  x402MockMode,
-  verifyAndSettle,
-} from "./x402.js";
+import { buildPaymentRequirements, verifyAndSettle } from "./x402.js";
 
 function agentConfigured(): boolean {
-  return Boolean(process.env.HEDERA_AGENT_ID && process.env.HEDERA_AGENT_KEY);
+  return Boolean(
+    process.env.HEDERA_AGENT_ID?.trim() && process.env.HEDERA_AGENT_KEY?.trim(),
+  );
 }
 
 function parseKey(raw: string) {
@@ -25,15 +23,12 @@ function parseKey(raw: string) {
 
 export async function signExactPayment(
   requirements: PaymentRequirements,
-): Promise<{ paymentHeader: string; mock: boolean }> {
-  if (x402MockMode()) {
-    return { paymentHeader: "mock", mock: true };
-  }
+): Promise<{ paymentHeader: string }> {
   if (!agentConfigured()) {
     throw Object.assign(new Error("hedera_agent_not_configured"), {
       status: 503,
       detail:
-        "Set HEDERA_AGENT_ID + HEDERA_AGENT_KEY (run npm run setup:hedera).",
+        "Set HEDERA_AGENT_ID + HEDERA_AGENT_KEY (run npm run setup:hcs after faucet).",
     });
   }
 
@@ -56,21 +51,19 @@ export async function signExactPayment(
     payload: signed.payload,
   };
 
-  // Facilitator accepts JSON body; our middleware also accepts base64/JSON header.
   return {
     paymentHeader: Buffer.from(JSON.stringify(paymentPayload)).toString(
       "base64",
     ),
-    mock: false,
   };
 }
 
 export async function payForResource(resource: string, description: string) {
   const requirements = await buildPaymentRequirements(resource, description);
-  const { paymentHeader, mock } = await signExactPayment(requirements);
+  const { paymentHeader } = await signExactPayment(requirements);
   const settlement = await verifyAndSettle({
     paymentRaw: paymentHeader,
     requirements,
   });
-  return { requirements, paymentHeader, settlement, mock };
+  return { requirements, paymentHeader, settlement };
 }

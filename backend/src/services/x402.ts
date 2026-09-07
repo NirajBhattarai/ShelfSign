@@ -4,8 +4,6 @@
  * Flow: client hits paywalled route → 402 + accepts[] → client signs TransferTransaction
  * → retries with PAYMENT-SIGNATURE → we /verify + /settle at the facilitator → grant access
  * and publish a payment receipt to HCS.
- *
- * Set X402_MOCK=1 (default when payTo missing) for local/tests without wallets.
  */
 import type { NextFunction, Request, Response } from "express";
 import { publishPaymentReceiptToHcs } from "./chain.js";
@@ -28,7 +26,6 @@ export interface X402Challenge {
   accepts: PaymentRequirements[];
   error?: string;
   resource: string;
-  mock?: boolean;
 }
 
 function facilitatorUrl(): string {
@@ -51,53 +48,53 @@ export function priceAmount(): string {
   const usdc = process.env.X402_PRICE_PER_QUERY_USDC ?? "0.01";
   const asset = process.env.X402_ASSET ?? "0.0.0";
   if (asset === "0.0.0") {
-    // Interpret USDC dollars as HBAR for demo pricing: $0.01 → 0.01 HBAR = 1_000_000 tinybars
+    // $0.01 → 0.01 HBAR = 1_000_000 tinybars
     const hbar = Number(usdc);
     return String(Math.max(1, Math.round(hbar * 100_000_000)));
   }
-  // USDC 6 decimals
   return String(Math.max(1, Math.round(Number(usdc) * 1_000_000)));
 }
 
-export function x402MockMode(): boolean {
-  // Explicit opt-in only — production/demo path is always on-chain when unset.
-  return process.env.X402_MOCK === "1";
-}
-
 export function getPayTo(): string {
-  return (
-    process.env.X402_PAY_TO ||
-    process.env.HEDERA_OPERATOR_ID ||
-    "0.0.mock-payee"
-  );
+  const payTo =
+    process.env.X402_PAY_TO?.trim() ||
+    process.env.HEDERA_OPERATOR_ID?.trim() ||
+    "";
+  if (!payTo || payTo.includes("mock")) {
+    throw new Error(
+      "Set X402_PAY_TO or HEDERA_OPERATOR_ID to a real Hedera account.",
+    );
+  }
+  return payTo;
 }
 
-export async function discoverFeePayer(): Promise<string | undefined> {
-  try {
-    const res = await fetch(`${facilitatorUrl()}/supported`, {
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!res.ok) return undefined;
-    const body = (await res.json()) as {
-      kinds?: Array<{ network?: string; extra?: { feePayer?: string } }>;
-      signers?: Record<string, string[]>;
-    };
-    const kind = body.kinds?.find((k) => k.network === caipNetwork());
-    return (
-      kind?.extra?.feePayer ??
-      body.signers?.["hedera:*"]?.[0] ??
-      undefined
-    );
-  } catch {
-    return undefined;
+export async function discoverFeePayer(): Promise<string> {
+  const res = await fetch(`${facilitatorUrl()}/supported`, {
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!res.ok) {
+    throw new Error(`facilitator_supported_failed:${res.status}`);
   }
+  const body = (await res.json()) as {
+    kinds?: Array<{ network?: string; extra?: { feePayer?: string } }>;
+    signers?: Record<string, string[]>;
+  };
+  const kind = body.kinds?.find((k) => k.network === caipNetwork());
+  const feePayer =
+    kind?.extra?.feePayer ?? body.signers?.["hedera:*"]?.[0] ?? undefined;
+  if (!feePayer) {
+    throw new Error(
+      `No Hedera feePayer from facilitator ${facilitatorUrl()} for ${caipNetwork()}`,
+    );
+  }
+  return feePayer;
 }
 
 export async function buildPaymentRequirements(
   resource: string,
   description: string,
 ): Promise<PaymentRequirements> {
-  const feePayer = x402MockMode() ? "0.0.mock-fee-payer" : await discoverFeePayer();
+  const feePayer = await discoverFeePayer();
   return {
     scheme: "exact",
     network: caipNetwork(),
@@ -108,7 +105,7 @@ export async function buildPaymentRequirements(
     description,
     mimeType: "application/json",
     resource,
-    extra: feePayer ? { feePayer } : undefined,
+    extra: { feePayer },
   };
 }
 
@@ -134,7 +131,6 @@ function parsePaymentPayload(raw: string): unknown {
 }
 
 export interface SettleResult {
-  mock: boolean;
   success: boolean;
   payer?: string | null;
   transaction?: string | null;
@@ -145,16 +141,20 @@ export async function verifyAndSettle(opts: {
   paymentRaw: string;
   requirements: PaymentRequirements;
 }): Promise<SettleResult> {
-  if (x402MockMode() || opts.paymentRaw === "mock" || opts.paymentRaw === "1") {
+  const raw = opts.paymentRaw.trim();
+  if (
+    !raw ||
+    raw === "mock" ||
+    raw === "1" ||
+    raw.startsWith("mock:")
+  ) {
     return {
-      mock: true,
-      success: true,
-      payer: "0.0.mock-payer",
-      transaction: `0.0.0@mock-x402.${Date.now()}`,
+      success: false,
+      error: "real_payment_signature_required",
     };
   }
 
-  const paymentPayload = parsePaymentPayload(opts.paymentRaw);
+  const paymentPayload = parsePaymentPayload(raw);
   const body = {
     x402Version: 2,
     paymentPayload,
@@ -175,7 +175,6 @@ export async function verifyAndSettle(opts: {
   };
   if (!verifyRes.ok || !verifyJson.isValid) {
     return {
-      mock: false,
       success: false,
       error:
         verifyJson.invalidMessage ||
@@ -199,7 +198,6 @@ export async function verifyAndSettle(opts: {
   };
   if (!settleRes.ok || !settleJson.success) {
     return {
-      mock: false,
       success: false,
       payer: verifyJson.payer,
       error:
@@ -210,7 +208,6 @@ export async function verifyAndSettle(opts: {
   }
 
   return {
-    mock: false,
     success: true,
     payer: settleJson.payer ?? verifyJson.payer,
     transaction: settleJson.transaction ?? null,
@@ -248,7 +245,6 @@ export function requireX402Payment(opts: {
           x402Version: 2,
           accepts: [requirements],
           resource,
-          mock: x402MockMode(),
           error: "Payment required to access attested stock query",
         };
         res.setHeader("Content-Type", "application/json");
@@ -282,7 +278,7 @@ export function requireX402Payment(opts: {
         payer: settlement.payer,
         payTo: requirements.payTo,
         settlementTx: settlement.transaction,
-      }).catch(() => undefined);
+      });
 
       req.x402 = { requirements, settlement, hcs };
       next();

@@ -132,7 +132,6 @@ async function main() {
       HEDERA_HCS_TOPIC_ID: topicId!,
       HEDERA_AGENT_ID: agentId,
       HEDERA_AGENT_KEY: process.env.HEDERA_AGENT_KEY!,
-      X402_MOCK: "0",
       X402_PAY_TO: operatorId,
       X402_ASSET: "0.0.0",
       X402_FACILITATOR_URL: "https://api.testnet.blocky402.com",

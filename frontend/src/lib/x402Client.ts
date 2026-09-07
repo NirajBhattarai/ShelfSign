@@ -1,7 +1,6 @@
 /**
  * Browser-side x402 exact-scheme signing (Hedera).
  * Prefer HederaWalletContext + ClientHederaSigner (WalletConnect / demo / import).
- * Backend tests keep using HEDERA_AGENT_* via /x402/sign and vitest.
  */
 
 import type { ClientHederaSigner } from "@x402/hedera";
@@ -73,12 +72,14 @@ function toBase64Json(value: unknown): string {
 export async function signExactPaymentHeaderWithSigner(
   requirements: PaymentRequirements,
   signer: ClientHederaSigner,
-): Promise<{ paymentHeader: string; payer: string; mock: boolean }> {
-  if (
-    process.env.NEXT_PUBLIC_X402_MOCK === "1" ||
-    requirements.payTo.includes("mock")
-  ) {
-    return { paymentHeader: "mock", payer: "0.0.mock-payer", mock: true };
+): Promise<{ paymentHeader: string; payer: string }> {
+  if (!requirements.payTo || requirements.payTo.includes("mock")) {
+    throw new Error(
+      "payTo must be a real Hedera account (set X402_PAY_TO / HEDERA_OPERATOR_ID).",
+    );
+  }
+  if (!requirements.extra?.feePayer) {
+    throw new Error("feePayer missing from payment requirements.");
   }
 
   const { ExactHederaScheme } = await import("@x402/hedera");
@@ -96,7 +97,6 @@ export async function signExactPaymentHeaderWithSigner(
   return {
     paymentHeader: toBase64Json(paymentPayload),
     payer: signer.accountId,
-    mock: false,
   };
 }
 
@@ -105,14 +105,7 @@ export async function signExactPaymentHeaderWithSigner(
  */
 export async function signExactPaymentHeader(
   requirements: PaymentRequirements,
-): Promise<{ paymentHeader: string; payer: string; mock: boolean }> {
-  if (
-    process.env.NEXT_PUBLIC_X402_MOCK === "1" ||
-    requirements.payTo.includes("mock")
-  ) {
-    return { paymentHeader: "mock", payer: "0.0.mock-payer", mock: true };
-  }
-
+): Promise<{ paymentHeader: string; payer: string }> {
   const creds = getPayerCredentials();
   if (!creds) {
     throw new Error(

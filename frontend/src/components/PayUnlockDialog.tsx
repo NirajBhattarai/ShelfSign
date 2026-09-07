@@ -8,7 +8,6 @@ import {
   formatPaymentAmount,
   type PaymentRequirements,
 } from "@/lib/x402Client";
-import { shortenAccountId } from "@/lib/hederaWallet";
 import type { X402Challenge } from "@/lib/api";
 
 export function PayUnlockDialog({
@@ -37,21 +36,14 @@ export function PayUnlockDialog({
     : "x402 price";
 
   if (showConnect) {
-    return (
-      <ConnectWalletDialog
-        onClose={() => setShowConnect(false)}
-      />
-    );
+    return <ConnectWalletDialog onClose={() => setShowConnect(false)} />;
   }
 
   return (
     <Overlay onClose={busy ? () => undefined : onCancel} wide>
       <div className="overlay-title">Unlock attested stock</div>
       <div className="overlay-sub">
-        {sku} · {warehouseName}
-        {challenge.mock
-          ? " · mock settlement (local)"
-          : " · Hedera x402 settle"}
+        {sku} · {warehouseName} · Hedera testnet x402 settle
       </div>
 
       <div className="order-summary-strip">
@@ -77,18 +69,26 @@ export function PayUnlockDialog({
 
       <DetailRow label="Pay to" value={requirements?.payTo} mono />
       <DetailRow
-        label="Payer wallet"
+        label="Payer account"
         value={
           wallet
-            ? `${shortenAccountId(wallet.accountId)} · ${wallet.label}`
+            ? `${wallet.accountId} · ${wallet.label}`
             : "Not connected"
         }
         mono
       />
+      {requirements?.extra?.feePayer && (
+        <DetailRow
+          label="Fee payer (facilitator)"
+          value={requirements.extra.feePayer}
+          mono
+        />
+      )}
 
       {!wallet && (
         <div className="catalog-banner" style={{ marginTop: 14 }}>
-          Connect a Hedera wallet to sign this payment in your browser.
+          Connect HashPack (or import a funded testnet account) to sign the
+          HBAR payment.
         </div>
       )}
 
@@ -134,6 +134,18 @@ export function PayUnlockDialog({
           </button>
         )}
       </div>
+
+      {wallet && (
+        <button
+          type="button"
+          className="link-btn"
+          style={{ marginTop: 12 }}
+          onClick={() => setShowConnect(true)}
+          disabled={busy}
+        >
+          Switch account
+        </button>
+      )}
     </Overlay>
   );
 }

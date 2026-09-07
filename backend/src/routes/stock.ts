@@ -4,7 +4,6 @@ import { supabase } from "../services/supabase.js";
 import {
   requireX402Payment,
   type PaidRequest,
-  x402MockMode,
   buildPaymentRequirements,
 } from "../services/x402.js";
 import { fetchRecentHcsMessages } from "../services/chain.js";
@@ -28,22 +27,28 @@ stockRouter.get("/hcs/recent", async (_req, res) => {
 
 /** Challenge preview (no settle). */
 stockRouter.get("/:warehouseId/:sku/challenge", async (req, res) => {
-  const resource = `/stock/${req.params.warehouseId}/${encodeURIComponent(req.params.sku)}`;
-  const requirements = await buildPaymentRequirements(
-    resource,
-    "ShelfSign attested stock query",
-  );
-  res.json({
-    x402Version: 2,
-    accepts: [requirements],
-    resource,
-    mock: x402MockMode(),
-  });
+  try {
+    const resource = `/stock/${req.params.warehouseId}/${encodeURIComponent(req.params.sku)}`;
+    const requirements = await buildPaymentRequirements(
+      resource,
+      "ShelfSign attested stock query",
+    );
+    res.json({
+      x402Version: 2,
+      accepts: [requirements],
+      resource,
+    });
+  } catch (err) {
+    res.status(503).json({
+      error: "x402_not_configured",
+      detail: err instanceof Error ? err.message : "unknown",
+    });
+  }
 });
 
 /**
  * x402-paywalled attested stock query.
- * Returns 402 + accepts[] unless PAYMENT-SIGNATURE (or mock) is present.
+ * Returns 402 + accepts[] unless a real PAYMENT-SIGNATURE is present.
  */
 stockRouter.get(
   "/:warehouseId/:sku",
@@ -111,7 +116,6 @@ stockRouter.get(
     res.json({
       paid: true,
       x402: {
-        mock: req.x402?.settlement.mock ?? x402MockMode(),
         amount: req.x402?.requirements.amount,
         asset: req.x402?.requirements.asset,
         network: req.x402?.requirements.network,

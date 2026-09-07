@@ -1,7 +1,6 @@
 /**
  * Hedera Consensus Service — publish attestation + x402 payment receipts.
- * When operator/topic env is missing, runs in mock mode (deterministic local ids)
- * so unit tests and local demos still work.
+ * Requires HEDERA_OPERATOR_ID, HEDERA_OPERATOR_KEY, and HEDERA_HCS_TOPIC_ID.
  */
 import {
   Client,
@@ -14,7 +13,6 @@ import {
 export type HcsNetwork = "testnet" | "mainnet";
 
 export interface HcsPublishResult {
-  mock: boolean;
   topicId: string;
   sequenceNumber: number | null;
   transactionId: string | null;
@@ -45,19 +43,31 @@ function hashscanTopic(topicId: string): string {
 }
 
 export function hcsConfigured(): boolean {
+  const topic = process.env.HEDERA_HCS_TOPIC_ID?.trim() ?? "";
   return Boolean(
-    process.env.HEDERA_OPERATOR_ID &&
-      process.env.HEDERA_OPERATOR_KEY &&
-      process.env.HEDERA_HCS_TOPIC_ID,
+    process.env.HEDERA_OPERATOR_ID?.trim() &&
+      process.env.HEDERA_OPERATOR_KEY?.trim() &&
+      topic &&
+      !topic.includes("mock"),
   );
 }
 
 export function getHcsTopicId(): string {
-  return process.env.HEDERA_HCS_TOPIC_ID ?? "0.0.mock-topic";
+  const topic = process.env.HEDERA_HCS_TOPIC_ID?.trim();
+  if (!topic || topic.includes("mock")) {
+    throw new Error(
+      "Set HEDERA_HCS_TOPIC_ID to a real topic (npm run setup:hcs after faucet).",
+    );
+  }
+  return topic;
 }
 
-function buildClient(): Client | null {
-  if (!hcsConfigured()) return null;
+function buildClient(): Client {
+  if (!hcsConfigured()) {
+    throw new Error(
+      "HCS not configured. Set HEDERA_OPERATOR_ID/KEY and HEDERA_HCS_TOPIC_ID.",
+    );
+  }
   const client =
     network() === "mainnet" ? Client.forMainnet() : Client.forTestnet();
   const operatorId = AccountId.fromString(process.env.HEDERA_OPERATOR_ID!);
@@ -68,8 +78,6 @@ function buildClient(): Client | null {
   client.setOperator(operatorId, operatorKey);
   return client;
 }
-
-let mockSeq = 1;
 
 async function submitMessage(
   message: Record<string, unknown>,
@@ -82,19 +90,6 @@ async function submitMessage(
   };
 
   const client = buildClient();
-  if (!client) {
-    const sequenceNumber = mockSeq++;
-    return {
-      mock: true,
-      topicId,
-      sequenceNumber,
-      transactionId: `0.0.0@mock.${sequenceNumber}`,
-      consensusTimestamp: new Date().toISOString(),
-      hashscanUrl: null,
-      message: payload,
-    };
-  }
-
   try {
     const topic = TopicId.fromString(topicId);
     const tx = await new TopicMessageSubmitTransaction()
@@ -108,7 +103,6 @@ async function submitMessage(
         : null;
     const transactionId = tx.transactionId?.toString() ?? null;
     return {
-      mock: false,
       topicId,
       sequenceNumber,
       transactionId,
@@ -148,7 +142,9 @@ export async function publishAttestationToHcs(attestation: {
     cmosScore: attestation.cmos_score ?? null,
     detectionCount: attestation.detection_count ?? null,
     itemSkus: Array.isArray(attestation.items)
-      ? (attestation.items as Array<{ sku?: string }>).map((i) => i.sku).filter(Boolean)
+      ? (attestation.items as Array<{ sku?: string }>)
+          .map((i) => i.sku)
+          .filter(Boolean)
       : [],
     capturedAt: attestation.captured_at,
   });
@@ -178,24 +174,12 @@ export interface HcsMirrorMessage {
   decoded?: Record<string, unknown>;
 }
 
-export async function fetchRecentHcsMessages(
-  limit = 25,
-): Promise<{
+export async function fetchRecentHcsMessages(limit = 25): Promise<{
   topicId: string;
   topicUrl: string;
   messages: HcsMirrorMessage[];
-  mock: boolean;
 }> {
   const topicId = getHcsTopicId();
-  if (!hcsConfigured() || topicId.includes("mock")) {
-    return {
-      topicId,
-      topicUrl: hashscanTopic(topicId),
-      messages: [],
-      mock: true,
-    };
-  }
-
   const url = `${mirrorBase()}/api/v1/topics/${topicId}/messages?order=desc&limit=${limit}`;
   const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
   if (!res.ok) {
@@ -224,6 +208,5 @@ export async function fetchRecentHcsMessages(
     topicId,
     topicUrl: hashscanTopic(topicId),
     messages,
-    mock: false,
   };
 }

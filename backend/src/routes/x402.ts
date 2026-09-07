@@ -1,9 +1,6 @@
 import { Router } from "express";
 import { requireAuth, type AuthedRequest } from "../middleware/auth.js";
-import {
-  buildPaymentRequirements,
-  x402MockMode,
-} from "../services/x402.js";
+import { buildPaymentRequirements } from "../services/x402.js";
 import { signExactPayment } from "../services/x402Agent.js";
 
 export const x402Router = Router();
@@ -24,7 +21,6 @@ x402Router.get("/challenge", async (req, res) => {
     x402Version: 2,
     accepts: [requirements],
     resource,
-    mock: x402MockMode(),
   });
 });
 
@@ -52,7 +48,6 @@ x402Router.post("/sign", async (req: AuthedRequest, res) => {
       x402Version: 2,
       requirements,
       paymentSignature: signed.paymentHeader,
-      mock: signed.mock,
     });
   } catch (err) {
     const e = err as { status?: number; message?: string; detail?: string };
@@ -104,7 +99,6 @@ x402Router.post("/unlock", async (req: AuthedRequest, res) => {
       res.status(stockRes.status).json({
         error: "stock_fetch_failed",
         detail: stockBody,
-        mock: signed.mock,
         requirements,
       });
       return;

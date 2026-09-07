@@ -1,10 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
   buildPaymentRequirements,
+  getPayTo,
   priceAmount,
   verifyAndSettle,
-  x402MockMode,
-  getPayTo,
 } from "./x402.js";
 import {
   publishAttestationToHcs,
@@ -17,48 +16,45 @@ describe("x402", () => {
   const prev = { ...process.env };
 
   beforeEach(() => {
-    process.env.X402_MOCK = "1";
-    process.env.X402_PRICE_PER_QUERY_USDC = "0.01";
+    process.env.X402_PAY_TO = "0.0.12345";
+    process.env.HEDERA_NETWORK = "testnet";
     process.env.X402_ASSET = "0.0.0";
-    delete process.env.X402_PAY_TO;
-    delete process.env.HEDERA_OPERATOR_ID;
+    process.env.X402_PRICE_PER_QUERY_USDC = "0.01";
+    process.env.X402_FACILITATOR_URL = "https://api.testnet.blocky402.com";
   });
 
   afterEach(() => {
     process.env = { ...prev };
   });
 
-  it("enables mock mode without payTo", () => {
-    expect(x402MockMode()).toBe(true);
+  it("requires a real payTo account", () => {
+    delete process.env.X402_PAY_TO;
+    delete process.env.HEDERA_OPERATOR_ID;
+    expect(() => getPayTo()).toThrow(/X402_PAY_TO/);
   });
 
-  it("prices HBAR from USDC dollars env", () => {
-    // 0.01 HBAR = 1_000_000 tinybars
+  it("prices 0.01 HBAR as 1_000_000 tinybars", () => {
     expect(priceAmount()).toBe("1000000");
   });
 
-  it("builds exact hedera requirements", async () => {
-    const reqs = await buildPaymentRequirements(
-      "/stock/wh/SKU-1",
-      "test query",
-    );
+  it("builds payment requirements with facilitator feePayer", async () => {
+    const reqs = await buildPaymentRequirements("/stock/wh/SKU-1", "t");
     expect(reqs.scheme).toBe("exact");
     expect(reqs.network).toMatch(/^hedera:/);
-    expect(reqs.payTo).toBe(getPayTo());
+    expect(reqs.payTo).toBe("0.0.12345");
     expect(reqs.amount).toBe("1000000");
-    expect(reqs.resource).toBe("/stock/wh/SKU-1");
-  });
+    expect(reqs.extra?.feePayer).toMatch(/^0\.0\./);
+  }, 20_000);
 
-  it("settles mock payment payloads", async () => {
+  it("rejects mock payment payloads", async () => {
     const requirements = await buildPaymentRequirements("/stock/a/b", "t");
     const settled = await verifyAndSettle({
       paymentRaw: "mock",
       requirements,
     });
-    expect(settled.success).toBe(true);
-    expect(settled.mock).toBe(true);
-    expect(settled.transaction).toBeTruthy();
-  });
+    expect(settled.success).toBe(false);
+    expect(settled.error).toBe("real_payment_signature_required");
+  }, 20_000);
 });
 
 describe("HCS chain", () => {
@@ -76,43 +72,36 @@ describe("HCS chain", () => {
 
   it("reports not configured without credentials", () => {
     expect(hcsConfigured()).toBe(false);
-    expect(getHcsTopicId()).toContain("mock");
+    expect(() => getHcsTopicId()).toThrow(/HEDERA_HCS_TOPIC_ID/);
   });
 
-  it("publishes attestation in mock mode", async () => {
-    const result = await publishAttestationToHcs({
-      id: "att-1",
-      camera_id: "cam-1",
-      supplier_id: "sup-1",
-      camera_account: "0xabc",
-      nonce: "0xn",
-      image_hash: "0xh",
-      model: "yolo",
-      model_hash: "0xm",
-      items: [{ sku: "ANGLE-IRON-3M", count: 2 }],
-      cmos_score: 1,
-      detection_count: 2,
-      captured_at: new Date().toISOString(),
-    });
-    expect(result.mock).toBe(true);
-    expect(result.sequenceNumber).toBeGreaterThan(0);
-    expect(result.message.type).toBe("shelfsign.attestation.v1");
-    expect(result.message.attestationId).toBe("att-1");
+  it("refuses attestation publish without HCS config", async () => {
+    await expect(
+      publishAttestationToHcs({
+        id: "att-1",
+        camera_id: "cam",
+        supplier_id: "sup",
+        camera_account: null,
+        nonce: "0x1",
+        image_hash: "0x2",
+        model: "m",
+        model_hash: "0x3",
+        items: [],
+        captured_at: new Date().toISOString(),
+      }),
+    ).rejects.toThrow(/HCS|HEDERA/);
   });
 
-  it("publishes x402 payment receipt in mock mode", async () => {
-    const result = await publishPaymentReceiptToHcs({
-      resource: "/stock/wh/SKU",
-      amount: "1000000",
-      asset: "0.0.0",
-      network: "hedera:testnet",
-      payer: "0.0.payer",
-      payTo: "0.0.payee",
-      settlementTx: "0.0.0@tx",
-      warehouseId: "wh",
-      sku: "SKU",
-    });
-    expect(result.mock).toBe(true);
-    expect(result.message.type).toBe("shelfsign.x402.payment.v1");
+  it("refuses payment receipt publish without HCS config", async () => {
+    await expect(
+      publishPaymentReceiptToHcs({
+        resource: "/stock/x/y",
+        amount: "1",
+        asset: "0.0.0",
+        network: "hedera:testnet",
+        payer: "0.0.1",
+        payTo: "0.0.2",
+      }),
+    ).rejects.toThrow(/HCS|HEDERA/);
   });
 });

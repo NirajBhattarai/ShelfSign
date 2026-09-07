@@ -97,7 +97,6 @@ export default function StockDetailPage() {
   const [paidQuery, setPaidQuery] = useState<{
     paid: boolean;
     x402: {
-      mock?: boolean;
       amount?: string;
       asset?: string;
       network?: string;
@@ -168,31 +167,27 @@ export default function StockDetailPage() {
     setPayError(null);
     try {
       const path = `/stock/${warehouseId}/${encodeURIComponent(sku)}`;
-      let paymentSignature: string | undefined;
-
-      if (
-        payChallenge.mock ||
-        process.env.NEXT_PUBLIC_X402_MOCK === "1"
-      ) {
-        paymentSignature = "mock";
-      } else {
-        const requirements = payChallenge.accepts?.[0];
-        if (!requirements) {
-          throw new Error("Challenge missing payment requirements.");
-        }
-        const signer = await getClientSigner();
-        const signed = await signExactPaymentHeaderWithSigner(
-          requirements,
-          signer,
-        );
-        paymentSignature = signed.paymentHeader;
+      const requirements = payChallenge.accepts?.[0];
+      if (!requirements) {
+        throw new Error("Challenge missing payment requirements.");
       }
+      if (!requirements.extra?.feePayer) {
+        throw new Error(
+          "Facilitator feePayer missing — check X402_FACILITATOR_URL / network.",
+        );
+      }
+
+      const signer = await getClientSigner();
+      const signed = await signExactPaymentHeaderWithSigner(
+        requirements,
+        signer,
+      );
 
       const result = await apiGetPaid<{
         paid: boolean;
         x402: NonNullable<typeof paidQuery>["x402"];
         item: { sku: string; count: number; detectedCount?: number };
-      }>(path, { paymentSignature });
+      }>(path, { paymentSignature: signed.paymentHeader });
 
       setPaidQuery(result);
       setPayOpen(false);
@@ -454,10 +449,7 @@ export default function StockDetailPage() {
               <div className="overlay-title" style={{ marginBottom: 10 }}>
                 x402 paid stock query
               </div>
-              <DetailRow
-                label="Mode"
-                value={paidQuery.x402.mock ? "mock (local)" : "Hedera settle"}
-              />
+              <DetailRow label="Mode" value="Hedera x402 settle" />
               <DetailRow
                 label="Network"
                 value={paidQuery.x402.network ?? "—"}

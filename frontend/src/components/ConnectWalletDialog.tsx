@@ -41,8 +41,8 @@ export function ConnectWalletDialog({ onClose }: { onClose: () => void }) {
     <Overlay onClose={connecting ? () => undefined : onClose} wide>
       <div className="overlay-title">Connect Hedera wallet</div>
       <div className="overlay-sub">
-        Pay for attested stock queries with x402 on Hedera testnet. Your wallet
-        signs the payment; ShelfSign settles via the facilitator.
+        Pay for attested stock with real HBAR on Hedera testnet (x402). Connect
+        HashPack or import a funded account ID + key.
       </div>
 
       <div className="wallet-option-list">

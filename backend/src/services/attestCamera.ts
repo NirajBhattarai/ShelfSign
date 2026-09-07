@@ -408,8 +408,11 @@ export async function runFullAttestation(
         hcs_transaction_id: hcs.transactionId,
       })
       .eq("id", attestation.id);
-  } catch {
-    hcs = null;
+  } catch (err) {
+    throw Object.assign(
+      new Error(err instanceof Error ? err.message : "hcs_publish_failed"),
+      { status: 502, detail: "HCS publish failed", steps },
+    );
   }
 
   return {
@@ -430,7 +433,6 @@ export async function runFullAttestation(
       cmosScore,
       hcs: hcs
         ? {
-            mock: hcs.mock,
             topicId: hcs.topicId,
             sequenceNumber: hcs.sequenceNumber,
             hashscanUrl: hcs.hashscanUrl,
