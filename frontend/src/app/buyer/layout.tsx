@@ -6,6 +6,7 @@ import { useProfile } from "@/lib/useProfile";
 import { ToastProvider } from "@/components/toast";
 import { BuyerShell } from "@/components/BuyerShell";
 import { BuyerDataProvider } from "./BuyerDataContext";
+import { HederaWalletProvider } from "@/lib/HederaWalletContext";
 
 export default function BuyerLayout({
   children,
@@ -49,9 +50,11 @@ export default function BuyerLayout({
 
   return (
     <ToastProvider>
-      <BuyerDataProvider>
-        <BuyerShell>{children}</BuyerShell>
-      </BuyerDataProvider>
+      <HederaWalletProvider>
+        <BuyerDataProvider>
+          <BuyerShell>{children}</BuyerShell>
+        </BuyerDataProvider>
+      </HederaWalletProvider>
     </ToastProvider>
   );
 }

@@ -234,19 +234,22 @@ interface CatalogRow {
     profiles: { company_name: string } | null;
   };
   attestation: {
-    id: string;
-    camera_id: string;
-    camera_account: string;
-    nonce: string;
-    image_hash: string;
-    model_hash: string;
+    id: string | null;
+    camera_id: string | null;
+    camera_account: string | null;
+    nonce: string | null;
+    image_hash: string | null;
+    model_hash: string | null;
     captured_at: string;
+    cmos_score: number | null;
+    detection_count: number | null;
   };
   item: {
     sku: string;
     count: number;
     confidence: number;
     shelf: string;
+    detectedCount: number;
   };
 }
 
@@ -313,38 +316,85 @@ warehouseRouter.get("/catalog", async (req, res) => {
   const rows: CatalogRow[] = [];
   await Promise.all(
     filteredWarehouses.map(async (wh) => {
-      const { data: cameras } = await supabase
-        .from("cameras")
-        .select("id")
-        .eq("warehouse_id", wh.id);
+      const [{ data: stockRows }, { data: cameras }] = await Promise.all([
+        supabase
+          .from("warehouse_stock")
+          .select("sku, quantity, shelf, updated_at")
+          .eq("warehouse_id", wh.id)
+          .order("sku", { ascending: true }),
+        supabase.from("cameras").select("id").eq("warehouse_id", wh.id),
+      ]);
+      if (!stockRows?.length) return;
+
       const cameraIds = (cameras ?? []).map((c) => c.id as string);
-      if (cameraIds.length === 0) return;
+      type LatestAtt = {
+        id: string;
+        camera_id: string;
+        camera_account: string | null;
+        nonce: string;
+        image_hash: string;
+        model_hash: string;
+        items: unknown;
+        captured_at: string;
+        cmos_score: number | null;
+        detection_count: number | null;
+      };
+      let latestAtt: LatestAtt | null = null;
 
-      const { data: attestations } = await supabase
-        .from("attestations")
-        .select(
-          "id, camera_id, camera_account, nonce, image_hash, model_hash, items, captured_at",
-        )
-        .in("camera_id", cameraIds)
-        .order("captured_at", { ascending: false });
+      if (cameraIds.length > 0) {
+        const { data: attestations } = await supabase
+          .from("attestations")
+          .select(
+            "id, camera_id, camera_account, nonce, image_hash, model_hash, items, captured_at, cmos_score, detection_count",
+          )
+          .in("camera_id", cameraIds)
+          .order("captured_at", { ascending: false })
+          .limit(1);
+        latestAtt = (attestations?.[0] as LatestAtt | undefined) ?? null;
+      }
 
-      for (const att of attestations ?? []) {
-        const items = (att.items ?? []) as CatalogRow["item"][];
-        for (const item of items) {
-          rows.push({
-            warehouse: wh,
-            attestation: {
-              id: att.id,
-              camera_id: att.camera_id,
-              camera_account: att.camera_account,
-              nonce: att.nonce,
-              image_hash: att.image_hash,
-              model_hash: att.model_hash,
-              captured_at: att.captured_at,
-            },
-            item,
-          });
-        }
+      const detectedItems = (latestAtt?.items ?? []) as Array<{
+        sku: string;
+        count: number;
+        confidence: number;
+        shelf: string;
+      }>;
+
+      for (const stock of stockRows) {
+        const detected = detectedItems.find((i) => i.sku === stock.sku);
+        rows.push({
+          warehouse: wh,
+          attestation: latestAtt
+            ? {
+                id: latestAtt.id,
+                camera_id: latestAtt.camera_id,
+                camera_account: latestAtt.camera_account,
+                nonce: latestAtt.nonce,
+                image_hash: latestAtt.image_hash,
+                model_hash: latestAtt.model_hash,
+                captured_at: latestAtt.captured_at,
+                cmos_score: latestAtt.cmos_score,
+                detection_count: latestAtt.detection_count,
+              }
+            : {
+                id: null,
+                camera_id: null,
+                camera_account: null,
+                nonce: null,
+                image_hash: null,
+                model_hash: null,
+                captured_at: stock.updated_at,
+                cmos_score: null,
+                detection_count: null,
+              },
+          item: {
+            sku: stock.sku,
+            count: stock.quantity,
+            shelf: stock.shelf ?? "",
+            confidence: detected?.confidence ?? 0,
+            detectedCount: detected?.count ?? 0,
+          },
+        });
       }
     }),
   );
@@ -415,39 +465,118 @@ warehouseRouter.get("/catalog", async (req, res) => {
   });
 });
 
-// Attested stock captured by any camera registered to this warehouse —
-// this is the "attested image" a buyer is really asking to see: the
-// warehouse photo plus the live camera attestations tied to it.
-warehouseRouter.get("/:id/stock", async (req, res) => {
-  const { data: cameras, error: camerasError } = await supabase
-    .from("cameras")
-    .select("id")
-    .eq("warehouse_id", req.params.id);
+// Supplier-declared inventory for a warehouse (orderable quantities).
+warehouseRouter.get("/:id/stock", async (req: AuthedRequest, res) => {
+  const warehouseId = req.params.id;
+  const { data: warehouse, error: whError } = await supabase
+    .from("warehouses")
+    .select("id, supplier_id")
+    .eq("id", warehouseId)
+    .maybeSingle();
 
-  if (camerasError) {
-    res.status(500).json({ error: "query_failed" });
+  if (whError || !warehouse) {
+    res.status(404).json({ error: "warehouse_not_found" });
     return;
   }
 
-  const cameraIds = (cameras ?? []).map((c) => c.id as string);
-  if (cameraIds.length === 0) {
-    res.json([]);
+  if (
+    req.user!.role === "supplier" &&
+    warehouse.supplier_id !== req.user!.id
+  ) {
+    res.status(403).json({ error: "forbidden" });
     return;
   }
 
   const { data, error } = await supabase
-    .from("attestations")
-    .select(
-      "id, camera_id, camera_account, nonce, image_cid, image_hash, model, model_hash, items, captured_at",
-    )
-    .in("camera_id", cameraIds)
-    .order("captured_at", { ascending: false });
+    .from("warehouse_stock")
+    .select("id, sku, quantity, shelf, updated_at")
+    .eq("warehouse_id", warehouseId)
+    .order("sku", { ascending: true });
 
   if (error) {
-    res.status(500).json({ error: "query_failed" });
+    res.status(500).json({ error: "query_failed", detail: error.message });
     return;
   }
-  res.json(data);
+  res.json(data ?? []);
+});
+
+// Replace declared inventory for a warehouse (supplier only). Attestation
+// / YOLO never writes these rows.
+warehouseRouter.put("/:id/stock", async (req: AuthedRequest, res) => {
+  if (req.user!.role !== "supplier") {
+    res.status(403).json({ error: "supplier_only" });
+    return;
+  }
+
+  const warehouseId = req.params.id;
+  const { data: warehouse, error: whError } = await supabase
+    .from("warehouses")
+    .select("id, supplier_id")
+    .eq("id", warehouseId)
+    .maybeSingle();
+
+  if (whError || !warehouse || warehouse.supplier_id !== req.user!.id) {
+    res.status(404).json({ error: "warehouse_not_found" });
+    return;
+  }
+
+  const body = req.body as {
+    items?: Array<{ sku?: string; quantity?: number; shelf?: string }>;
+  };
+  const items = Array.isArray(body.items) ? body.items : null;
+  if (!items) {
+    res.status(400).json({ error: "items_required" });
+    return;
+  }
+
+  const cleaned: Array<{
+    warehouse_id: string;
+    supplier_id: string;
+    sku: string;
+    quantity: number;
+    shelf: string;
+    updated_at: string;
+  }> = [];
+  const seen = new Set<string>();
+  for (const raw of items) {
+    const sku = typeof raw.sku === "string" ? raw.sku.trim() : "";
+    const quantity = Number(raw.quantity);
+    if (!sku || !Number.isFinite(quantity) || quantity < 0) {
+      res.status(400).json({ error: "invalid_item", sku: raw.sku });
+      return;
+    }
+    if (seen.has(sku)) continue;
+    seen.add(sku);
+    cleaned.push({
+      warehouse_id: warehouseId,
+      supplier_id: req.user!.id,
+      sku,
+      quantity: Math.floor(quantity),
+      shelf: typeof raw.shelf === "string" ? raw.shelf.trim() : "",
+      updated_at: new Date().toISOString(),
+    });
+  }
+
+  await supabase.from("warehouse_stock").delete().eq("warehouse_id", warehouseId);
+  if (cleaned.length > 0) {
+    const { error: insertError } = await supabase
+      .from("warehouse_stock")
+      .insert(cleaned);
+    if (insertError) {
+      res
+        .status(500)
+        .json({ error: "insert_failed", detail: insertError.message });
+      return;
+    }
+  }
+
+  const { data } = await supabase
+    .from("warehouse_stock")
+    .select("id, sku, quantity, shelf, updated_at")
+    .eq("warehouse_id", warehouseId)
+    .order("sku", { ascending: true });
+
+  res.json(data ?? []);
 });
 
 function bearerToken(req: AuthedRequest): string | null {
@@ -455,8 +584,7 @@ function bearerToken(req: AuthedRequest): string | null {
   return header?.startsWith("Bearer ") ? header.slice(7) : null;
 }
 
-// Buyer stock detail for one SKU — live stream URL + trust copy come from
-// backend/DB so the frontend never hardcodes hosts or SiliconWitness text.
+// Buyer stock detail — declared quantity is orderable; YOLO is evidence only.
 warehouseRouter.get("/:id/stock/:sku", async (req: AuthedRequest, res) => {
   const warehouseId = req.params.id;
   const sku = decodeURIComponent(req.params.sku);
@@ -474,72 +602,68 @@ warehouseRouter.get("/:id/stock/:sku", async (req: AuthedRequest, res) => {
     return;
   }
 
+  const { data: stock } = await supabase
+    .from("warehouse_stock")
+    .select("sku, quantity, shelf, updated_at")
+    .eq("warehouse_id", warehouseId)
+    .eq("sku", sku)
+    .maybeSingle();
+
+  if (!stock) {
+    res.status(404).json({
+      error: "sku_not_found",
+      detail: "Supplier has not listed this SKU in warehouse inventory.",
+    });
+    return;
+  }
+
   const { data: cameras } = await supabase
     .from("cameras")
     .select("id, label, enrollment_status")
     .eq("warehouse_id", warehouseId);
 
   const cameraIds = (cameras ?? []).map((c) => c.id as string);
+  type MatchedAtt = {
+    id: string;
+    camera_id: string;
+    camera_account: string | null;
+    nonce: string;
+    image_cid: string | null;
+    image_hash: string;
+    model: string | null;
+    model_hash: string | null;
+    items: unknown;
+    captured_at: string;
+    cmos_score: number | null;
+    detection_count: number | null;
+  };
+  let matchedAtt: MatchedAtt | null = null;
 
-  const { data: attestations } = cameraIds.length
-    ? await supabase
-        .from("attestations")
-        .select(
-          "id, camera_id, camera_account, nonce, image_cid, image_hash, model, model_hash, items, captured_at",
-        )
-        .in("camera_id", cameraIds)
-        .order("captured_at", { ascending: false })
-    : { data: [] as never[] };
+  if (cameraIds.length > 0) {
+    const { data: attestations } = await supabase
+      .from("attestations")
+      .select(
+        "id, camera_id, camera_account, nonce, image_cid, image_hash, model, model_hash, items, captured_at, cmos_score, detection_count",
+      )
+      .in("camera_id", cameraIds)
+      .order("captured_at", { ascending: false })
+      .limit(1);
+    matchedAtt = (attestations?.[0] as MatchedAtt | undefined) ?? null;
+  }
 
-  type StockItemRow = {
+  const detectedItems = (matchedAtt?.items ?? []) as Array<{
     sku: string;
     count: number;
     confidence: number;
     shelf: string;
-  };
-
-  type AttestationRow = NonNullable<typeof attestations>[number];
-
-  let matchedItem: StockItemRow | null = null;
-  let matchedAtt: AttestationRow | null = null;
-
-  for (const att of attestations ?? []) {
-    const items = (att.items ?? []) as StockItemRow[];
-    const item = items.find((i) => i.sku === sku);
-    if (item) {
-      matchedItem = item;
-      matchedAtt = att;
-      break;
-    }
-  }
-
-  // Camera may not be aimed at this SKU (or YOLO saw nothing). Still serve
-  // the warehouse page with count 0 + latest attestation / live stream so
-  // buyers can re-attest instead of getting a hard 404.
-  const skuAbsent = !matchedItem;
-  if (!matchedItem) {
-    matchedItem = { sku, count: 0, confidence: 0, shelf: "" };
-  }
-  if (!matchedAtt) {
-    matchedAtt = (attestations ?? [])[0] ?? null;
-  }
-
-  const fallbackCamera =
-    (cameras ?? []).find((c) => c.enrollment_status === "enrolled") ??
-    (cameras ?? [])[0] ??
-    null;
-
-  if (!matchedAtt && !fallbackCamera) {
-    res.status(404).json({
-      error: "sku_not_found",
-      detail: "No camera or attestation for this warehouse yet.",
-    });
-    return;
-  }
-
+  }>;
+  const detected = detectedItems.find((i) => i.sku === sku);
   const camera = matchedAtt
     ? (cameras ?? []).find((c) => c.id === matchedAtt!.camera_id)
-    : fallbackCamera;
+    : ((cameras ?? []).find((c) => c.enrollment_status === "enrolled") ??
+      (cameras ?? [])[0] ??
+      null);
+
   const token = bearerToken(req);
   const publicApi = await getPublicApiUrl();
   const trustChecks = await getBuyerTrustChecks();
@@ -547,7 +671,7 @@ warehouseRouter.get("/:id/stock/:sku", async (req: AuthedRequest, res) => {
 
   let liveStreamUrl: string | null = null;
   if (token) {
-    const cameraId = matchedAtt?.camera_id || fallbackCamera?.id;
+    const cameraId = matchedAtt?.camera_id || camera?.id;
     if (cameraId) {
       const qs = new URLSearchParams({
         access_token: token,
@@ -557,8 +681,13 @@ warehouseRouter.get("/:id/stock/:sku", async (req: AuthedRequest, res) => {
     }
   }
 
-  const items = (matchedAtt?.items ?? []) as StockItemRow[];
-  const capturedAt = matchedAtt?.captured_at ?? new Date().toISOString();
+  const matchedItem = {
+    sku: stock.sku,
+    count: stock.quantity,
+    shelf: stock.shelf ?? "",
+    confidence: detected?.confidence ?? 0,
+    detectedCount: detected?.count ?? 0,
+  };
 
   res.json({
     warehouse: {
@@ -571,10 +700,10 @@ warehouseRouter.get("/:id/stock/:sku", async (req: AuthedRequest, res) => {
       profiles: warehouse.profiles,
     },
     item: matchedItem,
-    skuAbsent,
+    skuAbsent: !detected,
     attestation: {
       id: matchedAtt?.id ?? null,
-      camera_id: matchedAtt?.camera_id ?? fallbackCamera?.id ?? null,
+      camera_id: matchedAtt?.camera_id ?? camera?.id ?? null,
       camera_account: matchedAtt?.camera_account ?? null,
       camera_label: camera?.label ?? null,
       nonce: matchedAtt?.nonce ?? null,
@@ -582,21 +711,27 @@ warehouseRouter.get("/:id/stock/:sku", async (req: AuthedRequest, res) => {
       image_hash: matchedAtt?.image_hash ?? null,
       model: matchedAtt?.model ?? null,
       model_hash: matchedAtt?.model_hash ?? null,
-      items,
-      captured_at: capturedAt,
+      items: detectedItems,
+      captured_at: matchedAtt?.captured_at ?? stock.updated_at,
+      cmos_score: matchedAtt?.cmos_score ?? null,
+      detection_count: matchedAtt?.detection_count ?? null,
     },
     liveStreamUrl,
-    totalUnits: items.reduce((n, i) => n + (Number(i.count) || 0), 0),
+    totalUnits: stock.quantity,
+    detectedTotal: detectedItems.reduce(
+      (n, i) => n + (Number(i.count) || 0),
+      0,
+    ),
     trustChecks: trustChecks.map((c) => ({ ...c, ok: true })),
     copy: {
       ...stockCopy,
-      overlaySub: skuAbsent
-        ? `${matchedItem.sku} was not in the latest camera count at ${warehouse.name} (0 units). Aim the camera or attest again.`
-        : `Proof that ${matchedItem.sku} was counted on a real enrolled camera at ${warehouse.name} — not a spreadsheet upload.`,
-      countLiveLabel: "Attest live frame",
-      countLiveBusy: "Running full attestation (OSD + PUF + YOLO)…",
+      overlaySub: detected
+        ? `Camera proof for ${matchedItem.sku} at ${warehouse.name}. Orderable quantity is supplier-declared (${matchedItem.count}); vision detected ${matchedItem.detectedCount} in the latest frame.`
+        : `Orderable quantity for ${matchedItem.sku} is supplier-declared (${matchedItem.count}). Latest camera frame did not detect this SKU (vision can miss shadow/background items).`,
+      countLiveLabel: "Refresh camera proof",
+      countLiveBusy: "Running attestation (OSD + PUF + YOLO evidence)…",
       countLiveHint:
-        "Runs a full SiliconWitness attestation: OSD nonce, PUF identity, then YOLO count on that frame. Saves a new attestation for this warehouse camera.",
+        "Re-runs SiliconWitness attestation for trust. Does not change the supplier-declared stock amount you can order.",
     },
   });
 });

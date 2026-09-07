@@ -2,11 +2,18 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { apiGet, apiPost } from "@/lib/api";
+import { apiGet, apiPost, apiPut } from "@/lib/api";
 import { Badge, EmptyState, LedStatus, Ledger, Overlay } from "@/components/ui";
 import { AttestWizard } from "@/components/AttestWizard";
 import { useToast } from "@/components/toast";
 import { useSupplierData, type Camera } from "../../SupplierDataContext";
+
+interface StockRow {
+  id?: string;
+  sku: string;
+  quantity: number;
+  shelf: string;
+}
 
 export default function WarehouseDetailClient() {
   const { id } = useParams<{ id: string }>();
@@ -31,10 +38,40 @@ export default function WarehouseDetailClient() {
   const [viewingCamera, setViewingCamera] = useState<Camera | null>(null);
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
   const [attestingCamera, setAttestingCamera] = useState<Camera | null>(null);
+  const [stockRows, setStockRows] = useState<StockRow[]>([]);
+  const [stockLoading, setStockLoading] = useState(true);
+  const [savingStock, setSavingStock] = useState(false);
 
   useEffect(() => {
     if (searchParams.get("addCamera") === "1") setShowAddCamera(true);
   }, [searchParams]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setStockLoading(true);
+    apiGet<StockRow[]>(`/warehouses/${id}/stock`)
+      .then((rows) => {
+        if (!cancelled) {
+          setStockRows(
+            rows.map((r) => ({
+              id: r.id,
+              sku: r.sku,
+              quantity: r.quantity,
+              shelf: r.shelf ?? "",
+            })),
+          );
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setStockRows([]);
+      })
+      .finally(() => {
+        if (!cancelled) setStockLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
 
   function resetCameraForm() {
     setShowAddCamera(false);
@@ -81,6 +118,55 @@ export default function WarehouseDetailClient() {
   function closeLiveView() {
     setViewingCamera(null);
     setStreamUrl(null);
+  }
+
+  function addStockRow() {
+    setStockRows((prev) => [...prev, { sku: "", quantity: 0, shelf: "" }]);
+  }
+
+  function updateStockRow(
+    index: number,
+    patch: Partial<Pick<StockRow, "sku" | "quantity" | "shelf">>,
+  ) {
+    setStockRows((prev) =>
+      prev.map((row, i) => (i === index ? { ...row, ...patch } : row)),
+    );
+  }
+
+  function removeStockRow(index: number) {
+    setStockRows((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  async function saveStock() {
+    setSavingStock(true);
+    try {
+      const items = stockRows
+        .map((r) => ({
+          sku: r.sku.trim(),
+          quantity: Number(r.quantity) || 0,
+          shelf: r.shelf.trim(),
+        }))
+        .filter((r) => r.sku);
+      const saved = await apiPut<StockRow[]>(`/warehouses/${id}/stock`, {
+        items,
+      });
+      setStockRows(
+        saved.map((r) => ({
+          id: r.id,
+          sku: r.sku,
+          quantity: r.quantity,
+          shelf: r.shelf ?? "",
+        })),
+      );
+      showToast(
+        "Declared stock saved. Attestation does not change these amounts.",
+        "success",
+      );
+    } catch {
+      showToast("Couldn't save stock.", "error");
+    } finally {
+      setSavingStock(false);
+    }
   }
 
   if (loading) return null;
@@ -189,6 +275,103 @@ export default function WarehouseDetailClient() {
 
       <div className="page-header" style={{ marginTop: 28, marginBottom: 14 }}>
         <h2 style={{ fontSize: 15, fontWeight: 600, margin: 0 }}>
+          Declared stock (orderable)
+        </h2>
+      </div>
+      <p className="row-sub" style={{ marginBottom: 12 }}>
+        Buyers order these quantities. Camera attestation shows CMOS score and
+        YOLO finds as evidence — it does not overwrite this list.
+      </p>
+      <div className="panel panel-pad" style={{ marginBottom: 8 }}>
+        {stockLoading ? (
+          <div className="row-sub">Loading stock…</div>
+        ) : (
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>SKU</th>
+                <th>Qty</th>
+                <th>Shelf</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {stockRows.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="row-sub">
+                    No SKUs yet — add what buyers can order.
+                  </td>
+                </tr>
+              ) : (
+                stockRows.map((row, index) => (
+                  <tr key={row.id ?? `new-${index}`}>
+                    <td>
+                      <input
+                        className="mono"
+                        value={row.sku}
+                        onChange={(e) =>
+                          updateStockRow(index, { sku: e.target.value })
+                        }
+                        placeholder="SKU"
+                        style={{ width: "100%" }}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        className="mono"
+                        type="number"
+                        min={0}
+                        value={row.quantity}
+                        onChange={(e) =>
+                          updateStockRow(index, {
+                            quantity: Number(e.target.value),
+                          })
+                        }
+                        style={{ width: 88 }}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        value={row.shelf}
+                        onChange={(e) =>
+                          updateStockRow(index, { shelf: e.target.value })
+                        }
+                        placeholder="Shelf"
+                        style={{ width: "100%" }}
+                      />
+                    </td>
+                    <td>
+                      <button
+                        className="link-btn"
+                        type="button"
+                        onClick={() => removeStockRow(index)}
+                      >
+                        Remove
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        )}
+        <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
+          <button className="btn btn-ghost" type="button" onClick={addStockRow}>
+            Add SKU
+          </button>
+          <button
+            className="btn btn-primary"
+            type="button"
+            onClick={saveStock}
+            disabled={savingStock || stockLoading}
+          >
+            {savingStock ? "Saving…" : "Save stock"}
+          </button>
+        </div>
+      </div>
+
+      <div className="page-header" style={{ marginTop: 28, marginBottom: 14 }}>
+        <h2 style={{ fontSize: 15, fontWeight: 600, margin: 0 }}>
           Orders from this warehouse
         </h2>
       </div>
@@ -271,7 +454,10 @@ export default function WarehouseDetailClient() {
           camera={attestingCamera}
           onClose={() => setAttestingCamera(null)}
           onComplete={() =>
-            showToast("Stock attestation published.", "success")
+            showToast(
+              "Camera attestation published (evidence only — stock amounts unchanged).",
+              "success",
+            )
           }
         />
       )}

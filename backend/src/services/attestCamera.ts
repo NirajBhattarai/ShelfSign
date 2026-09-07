@@ -5,6 +5,7 @@ import {
   getDefaultCameraCredentials,
   getVisionServiceUrl,
 } from "./settings.js";
+import { publishAttestationToHcs, type HcsPublishResult } from "./chain.js";
 
 export interface CameraForAttest {
   id: string;
@@ -19,6 +20,7 @@ export interface CameraForAttest {
 
 export interface FullAttestResult {
   attestation: Record<string, unknown>;
+  hcs?: HcsPublishResult | null;
   steps: Record<string, unknown>;
   totalUnits: number;
   cmosScore: number;
@@ -330,6 +332,7 @@ export async function runFullAttestation(
     .delete()
     .eq("camera_id", enrolledCamera.id);
 
+  // YOLO items are camera evidence only — never write declared inventory.
   const { data: attestation, error: insertError } = await supabase
     .from("attestations")
     .insert({
@@ -342,6 +345,8 @@ export async function runFullAttestation(
       model,
       model_hash: modelHash,
       items,
+      cmos_score: cmosScore,
+      detection_count: detectionCount,
       captured_at: new Date().toISOString(),
     })
     .select()
@@ -355,8 +360,43 @@ export async function runFullAttestation(
     });
   }
 
+  let hcs: Awaited<ReturnType<typeof publishAttestationToHcs>> | null = null;
+  try {
+    hcs = await publishAttestationToHcs({
+      id: attestation.id as string,
+      camera_id: attestation.camera_id as string,
+      supplier_id: attestation.supplier_id as string,
+      camera_account: (attestation.camera_account as string | null) ?? null,
+      nonce: attestation.nonce as string,
+      image_hash: attestation.image_hash as string,
+      model: attestation.model as string,
+      model_hash: attestation.model_hash as string,
+      items: attestation.items,
+      cmos_score: (attestation.cmos_score as number | null) ?? cmosScore,
+      detection_count:
+        (attestation.detection_count as number | null) ?? detectionCount,
+      captured_at: attestation.captured_at as string,
+    });
+    await supabase
+      .from("attestations")
+      .update({
+        hcs_topic_id: hcs.topicId,
+        hcs_sequence_number: hcs.sequenceNumber,
+        hcs_transaction_id: hcs.transactionId,
+      })
+      .eq("id", attestation.id);
+  } catch {
+    hcs = null;
+  }
+
   return {
-    attestation,
+    attestation: {
+      ...attestation,
+      hcs_topic_id: hcs?.topicId ?? null,
+      hcs_sequence_number: hcs?.sequenceNumber ?? null,
+      hcs_transaction_id: hcs?.transactionId ?? null,
+    },
+    hcs,
     steps: {
       nonce,
       enrollment: steps.enrollment,
@@ -365,6 +405,14 @@ export async function runFullAttestation(
       detection: steps.detection,
       totalUnits,
       cmosScore,
+      hcs: hcs
+        ? {
+            mock: hcs.mock,
+            topicId: hcs.topicId,
+            sequenceNumber: hcs.sequenceNumber,
+            hashscanUrl: hcs.hashscanUrl,
+          }
+        : null,
     },
     totalUnits,
     cmosScore,

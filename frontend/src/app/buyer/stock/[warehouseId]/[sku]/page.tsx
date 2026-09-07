@@ -2,7 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { apiGet, apiPost } from "@/lib/api";
+import { apiGet, apiGetPaid, apiPost, type X402Challenge } from "@/lib/api";
+import { signExactPaymentHeaderWithSigner } from "@/lib/x402Client";
+import { useHederaWallet } from "@/lib/HederaWalletContext";
+import { PayUnlockDialog } from "@/components/PayUnlockDialog";
 import {
   Badge,
   DetailRow,
@@ -46,15 +49,18 @@ interface LiveCountResult {
 
 interface StockDetailResponse {
   warehouse: StockRow["warehouse"];
-  item: StockRow["item"];
+  item: StockRow["item"] & { detectedCount?: number };
   skuAbsent?: boolean;
   attestation: StockRow["attestation"] & {
     camera_label?: string | null;
     model?: string | null;
     items: StockRow["item"][];
+    cmos_score?: number | null;
+    detection_count?: number | null;
   };
   liveStreamUrl: string | null;
   totalUnits?: number;
+  detectedTotal?: number;
   trustChecks: TrustCheck[];
   copy: {
     attestationBlurb: string;
@@ -85,6 +91,29 @@ export default function StockDetailPage() {
   const [counting, setCounting] = useState(false);
   const [liveCount, setLiveCount] = useState<LiveCountResult | null>(null);
   const [countError, setCountError] = useState<string | null>(null);
+  const [paying, setPaying] = useState(false);
+  const [payOpen, setPayOpen] = useState(false);
+  const [payChallenge, setPayChallenge] = useState<X402Challenge | null>(null);
+  const [paidQuery, setPaidQuery] = useState<{
+    paid: boolean;
+    x402: {
+      mock?: boolean;
+      amount?: string;
+      asset?: string;
+      network?: string;
+      payer?: string | null;
+      settlementTx?: string | null;
+      hcs?: {
+        topicId?: string;
+        sequenceNumber?: number | null;
+        transactionId?: string | null;
+        hashscanUrl?: string | null;
+      } | null;
+    };
+    item: { sku: string; count: number; detectedCount?: number };
+  } | null>(null);
+  const [payError, setPayError] = useState<string | null>(null);
+  const { getClientSigner } = useHederaWallet();
 
   useEffect(() => {
     let cancelled = false;
@@ -115,6 +144,69 @@ export default function StockDetailPage() {
     };
   }, [warehouseId, sku]);
 
+  async function openPayDialog() {
+    setPayError(null);
+    setPaying(true);
+    try {
+      const challenge = await apiGet<X402Challenge>(
+        `/stock/${warehouseId}/${encodeURIComponent(sku)}/challenge`,
+      );
+      setPayChallenge(challenge);
+      setPayOpen(true);
+    } catch (err) {
+      setPayError(
+        err instanceof Error ? err.message : "Couldn't load payment challenge.",
+      );
+    } finally {
+      setPaying(false);
+    }
+  }
+
+  async function confirmPayUnlock() {
+    if (!payChallenge) return;
+    setPaying(true);
+    setPayError(null);
+    try {
+      const path = `/stock/${warehouseId}/${encodeURIComponent(sku)}`;
+      let paymentSignature: string | undefined;
+
+      if (
+        payChallenge.mock ||
+        process.env.NEXT_PUBLIC_X402_MOCK === "1"
+      ) {
+        paymentSignature = "mock";
+      } else {
+        const requirements = payChallenge.accepts?.[0];
+        if (!requirements) {
+          throw new Error("Challenge missing payment requirements.");
+        }
+        const signer = await getClientSigner();
+        const signed = await signExactPaymentHeaderWithSigner(
+          requirements,
+          signer,
+        );
+        paymentSignature = signed.paymentHeader;
+      }
+
+      const result = await apiGetPaid<{
+        paid: boolean;
+        x402: NonNullable<typeof paidQuery>["x402"];
+        item: { sku: string; count: number; detectedCount?: number };
+      }>(path, { paymentSignature });
+
+      setPaidQuery(result);
+      setPayOpen(false);
+      setPayChallenge(null);
+    } catch (err) {
+      setPaidQuery(null);
+      const msg =
+        err instanceof Error ? err.message : "x402 payment failed.";
+      if (msg !== "Payment cancelled") setPayError(msg);
+    } finally {
+      setPaying(false);
+    }
+  }
+
   async function countLiveFrame() {
     if (!detail) return;
     setCounting(true);
@@ -139,13 +231,12 @@ export default function StockDetailPage() {
         setDetail({
           ...detail,
           skuAbsent: !fromLive,
-          item: fromLive ?? {
-            sku,
-            count: 0,
-            confidence: 0,
-            shelf: "",
+          item: {
+            ...detail.item,
+            confidence: fromLive?.confidence ?? detail.item.confidence,
+            detectedCount: fromLive?.count ?? 0,
           },
-          totalUnits: result.totalUnits,
+          detectedTotal: result.totalUnits,
           attestation: {
             ...detail.attestation,
             id: result.attestationId ?? detail.attestation.id,
@@ -155,6 +246,8 @@ export default function StockDetailPage() {
             model: result.model,
             nonce: result.nonce ?? detail.attestation.nonce,
             captured_at: result.countedAt,
+            cmos_score: result.cmosScore ?? detail.attestation.cmos_score,
+            detection_count: result.detectionCount,
           },
         });
       }
@@ -285,32 +378,35 @@ export default function StockDetailPage() {
           <div className="product-detail-badges">
             <Badge status="verified" />
             <span className="meta-chip">
-              {detail.skuAbsent || item.count <= 0
-                ? "Out of stock"
-                : "Available"}
+              {item.count > 0 ? "Available" : "Out of stock"}
             </span>
             <span className="meta-chip">
               Attested {new Date(attestation.captured_at).toLocaleString()}
             </span>
             {detail.skuAbsent ? (
-              <span className="meta-chip">Not in latest camera frame</span>
+              <span className="meta-chip">Not seen in latest frame</span>
+            ) : null}
+            {attestation.cmos_score != null ? (
+              <span className="meta-chip">
+                CMOS score {Number(attestation.cmos_score).toFixed(3)}
+              </span>
             ) : null}
           </div>
 
           <div className="product-detail-figures">
             <div>
-              <div className="detail-label">Available units</div>
+              <div className="detail-label">Available to order</div>
               <div className="product-figure mono">{item.count}</div>
             </div>
             <div>
-              <div className="detail-label">Shelf</div>
-              <div className="product-figure mono">{item.shelf}</div>
+              <div className="detail-label">Detected in frame</div>
+              <div className="product-figure mono">
+                {item.detectedCount ?? 0}
+              </div>
             </div>
             <div>
-              <div className="detail-label">Detection confidence</div>
-              <div className="product-figure mono">
-                {Math.round(item.confidence * 100)}%
-              </div>
+              <div className="detail-label">Shelf</div>
+              <div className="product-figure mono">{item.shelf || "—"}</div>
             </div>
           </div>
 
@@ -334,11 +430,84 @@ export default function StockDetailPage() {
             </button>
             <button
               className="btn btn-ghost"
+              onClick={openPayDialog}
+              disabled={paying}
+            >
+              {paying && !payOpen ? "Loading price…" : "Pay & unlock (x402)"}
+            </button>
+            <button
+              className="btn btn-ghost"
               onClick={() => router.push("/buyer/orders")}
             >
               View my orders
             </button>
           </div>
+
+          {payError && (
+            <div className="field-error" style={{ marginBottom: 16 }}>
+              {payError}
+            </div>
+          )}
+
+          {paidQuery && (
+            <div className="panel panel-pad" style={{ marginBottom: 16 }}>
+              <div className="overlay-title" style={{ marginBottom: 10 }}>
+                x402 paid stock query
+              </div>
+              <DetailRow
+                label="Mode"
+                value={paidQuery.x402.mock ? "mock (local)" : "Hedera settle"}
+              />
+              <DetailRow
+                label="Network"
+                value={paidQuery.x402.network ?? "—"}
+                mono
+              />
+              <DetailRow
+                label="Amount"
+                value={`${paidQuery.x402.amount ?? "—"} (${paidQuery.x402.asset ?? "—"})`}
+                mono
+              />
+              <DetailRow label="Payer" value={paidQuery.x402.payer} mono />
+              <DetailRow
+                label="Settlement tx"
+                value={paidQuery.x402.settlementTx}
+                mono
+              />
+              {paidQuery.x402.hcs && (
+                <>
+                  <DetailRow
+                    label="HCS topic"
+                    value={paidQuery.x402.hcs.topicId}
+                    mono
+                  />
+                  <DetailRow
+                    label="HCS sequence"
+                    value={
+                      paidQuery.x402.hcs.sequenceNumber != null
+                        ? String(paidQuery.x402.hcs.sequenceNumber)
+                        : "—"
+                    }
+                    mono
+                  />
+                  {paidQuery.x402.hcs.hashscanUrl && (
+                    <DetailRow
+                      label="HashScan"
+                      value={paidQuery.x402.hcs.hashscanUrl}
+                    />
+                  )}
+                </>
+              )}
+              <DetailRow
+                label="Orderable qty"
+                value={String(paidQuery.item.count)}
+              />
+              <DetailRow
+                label="Detected in frame"
+                value={String(paidQuery.item.detectedCount ?? 0)}
+              />
+            </div>
+          )}
 
           <div className="panel panel-pad" style={{ marginBottom: 16 }}>
             <div className="overlay-title" style={{ marginBottom: 14 }}>
@@ -407,8 +576,8 @@ export default function StockDetailPage() {
 
           <div className="attest-total-banner">
             <div>
-              <div className="detail-label">Total units in attestation</div>
-              <div className="product-figure mono">{attestedTotal}</div>
+              <div className="detail-label">Available to order</div>
+              <div className="product-figure mono">{item.count}</div>
             </div>
             <button
               className="btn btn-primary"
@@ -417,12 +586,12 @@ export default function StockDetailPage() {
             >
               {counting
                 ? (copy.countLiveBusy ?? "Counting…")
-                : (copy.countLiveLabel ?? "Count live frame")}
+                : (copy.countLiveLabel ?? "Refresh camera proof")}
             </button>
           </div>
           <p className="row-sub" style={{ marginBottom: 16 }}>
             {copy.countLiveHint ??
-              "Capture a fresh still from this warehouse camera and count objects with YOLO/PyTorch."}
+              "Camera proof only — does not change orderable stock."}
           </p>
 
           {countError && <div className="field-error">{countError}</div>}
@@ -430,18 +599,22 @@ export default function StockDetailPage() {
           {liveCount && (
             <div className="panel panel-pad" style={{ marginBottom: 16 }}>
               <div className="overlay-title" style={{ marginBottom: 10 }}>
-                {liveCount.fullAttestation
-                  ? "Live attestation result"
-                  : "Live frame count"}
+                Camera attestation (evidence)
               </div>
               <DetailRow
-                label="Total units on frame"
+                label="Detected in frame"
                 value={String(liveCount.totalUnits)}
               />
               <DetailRow
                 label="Detections"
                 value={String(liveCount.detectionCount)}
               />
+              {liveCount.cmosScore != null && (
+                <DetailRow
+                  label="CMOS / PUF score"
+                  value={Number(liveCount.cmosScore).toFixed(3)}
+                />
+              )}
               {liveCount.steps?.challenge && (
                 <>
                   <DetailRow
@@ -480,7 +653,7 @@ export default function StockDetailPage() {
                   <thead>
                     <tr>
                       <th>SKU</th>
-                      <th>Count</th>
+                      <th>Detected</th>
                       <th>Shelf</th>
                       <th>Confidence</th>
                     </tr>
@@ -516,19 +689,47 @@ export default function StockDetailPage() {
           <div className="panel panel-pad" style={{ marginBottom: 16 }}>
             <DetailRow label="SKU" value={item.sku} mono />
             <DetailRow
-              label="Units in attestation"
+              label="Available to order"
               value={String(item.count)}
             />
-            <DetailRow label="Shelf" value={item.shelf} />
             <DetailRow
-              label="Confidence"
-              value={`${Math.round(item.confidence * 100)}%`}
+              label="Detected in frame"
+              value={String(item.detectedCount ?? 0)}
             />
+            {attestation.cmos_score != null && (
+              <DetailRow
+                label="CMOS / PUF score"
+                value={Number(attestation.cmos_score).toFixed(3)}
+              />
+            )}
+            <DetailRow label="Shelf" value={item.shelf || "—"} />
             <DetailRow
               label="Captured at"
               value={new Date(attestation.captured_at).toLocaleString()}
             />
             <DetailRow label="Attestation id" value={attestation.id} mono />
+            {"hcs_topic_id" in attestation &&
+              (attestation as { hcs_topic_id?: string | null }).hcs_topic_id && (
+                <DetailRow
+                  label="HCS topic"
+                  value={
+                    (attestation as { hcs_topic_id?: string }).hcs_topic_id
+                  }
+                  mono
+                />
+              )}
+            {"hcs_sequence_number" in attestation &&
+              (attestation as { hcs_sequence_number?: number | null })
+                .hcs_sequence_number != null && (
+                <DetailRow
+                  label="HCS sequence"
+                  value={String(
+                    (attestation as { hcs_sequence_number?: number })
+                      .hcs_sequence_number,
+                  )}
+                  mono
+                />
+              )}
             <DetailRow
               label="Camera account"
               value={attestation.camera_account}
@@ -608,6 +809,27 @@ export default function StockDetailPage() {
         <PlaceOrderDialog
           target={orderTarget}
           onClose={() => setOrdering(false)}
+        />
+      )}
+
+      {payOpen && payChallenge && detail && (
+        <PayUnlockDialog
+          sku={sku}
+          warehouseName={
+            detail.warehouse.profiles?.company_name
+              ? `${detail.warehouse.profiles.company_name} · ${detail.warehouse.name}`
+              : detail.warehouse.name
+          }
+          challenge={payChallenge}
+          busy={paying}
+          error={payError}
+          onConfirm={confirmPayUnlock}
+          onCancel={() => {
+            if (paying) return;
+            setPayOpen(false);
+            setPayChallenge(null);
+            setPayError(null);
+          }}
         />
       )}
     </div>

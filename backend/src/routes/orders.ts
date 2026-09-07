@@ -122,10 +122,43 @@ orderRouter.post("/", async (req: AuthedRequest, res) => {
     return;
   }
 
-  const { supplierId, sku, quantity, attestationId } = (req.body ??
-    {}) as Partial<CreateOrderBody>;
+  const { supplierId, sku, quantity, attestationId, warehouseId } = (req.body ??
+    {}) as Partial<CreateOrderBody> & { warehouseId?: string };
   if (!supplierId || !sku || !quantity || quantity < 1) {
     res.status(400).json({ error: "missing_fields" });
+    return;
+  }
+
+  let stockQuery = supabase
+    .from("warehouse_stock")
+    .select("quantity, warehouse_id")
+    .eq("supplier_id", supplierId)
+    .eq("sku", sku);
+  if (warehouseId) {
+    stockQuery = stockQuery.eq("warehouse_id", warehouseId);
+  }
+  const { data: stockRows, error: stockError } = await stockQuery;
+  if (stockError) {
+    res.status(500).json({ error: "stock_query_failed", detail: stockError.message });
+    return;
+  }
+  const available = (stockRows ?? []).reduce(
+    (n, row) => n + (Number(row.quantity) || 0),
+    0,
+  );
+  if (available < 1) {
+    res.status(409).json({
+      error: "out_of_stock",
+      detail: "Supplier has not listed available quantity for this SKU.",
+    });
+    return;
+  }
+  if (quantity > available) {
+    res.status(409).json({
+      error: "insufficient_stock",
+      detail: `Only ${available} units available.`,
+      available,
+    });
     return;
   }
 

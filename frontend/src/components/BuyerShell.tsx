@@ -6,6 +6,9 @@ import { usePathname, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { Brand } from "@/components/ui";
 import { useBuyerData } from "@/app/buyer/BuyerDataContext";
+import { useHederaWallet } from "@/lib/HederaWalletContext";
+import { ConnectWalletDialog } from "@/components/ConnectWalletDialog";
+import { shortenAccountId } from "@/lib/hederaWallet";
 
 const SECTION_TITLE: Record<string, string> = {
   "/buyer": "Overview",
@@ -25,7 +28,9 @@ export function BuyerShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { orders, stock } = useBuyerData();
+  const { wallet, connecting, disconnect } = useHederaWallet();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [connectOpen, setConnectOpen] = useState(false);
 
   const activeOrders = orders.filter(
     (o) => o.status === "pending" || o.status === "confirmed",
@@ -118,7 +123,34 @@ export function BuyerShell({ children }: { children: React.ReactNode }) {
               </span>
             </div>
           </div>
-          <span className="role-chip">Buyer</span>
+          <div className="dash-header-actions">
+            {wallet ? (
+              <div className="wallet-chip" title={wallet.accountId}>
+                <span className="wallet-chip-dot" data-mode={wallet.mode} />
+                <span className="wallet-chip-id mono">
+                  {shortenAccountId(wallet.accountId)}
+                </span>
+                <button
+                  type="button"
+                  className="wallet-chip-action"
+                  onClick={() => disconnect()}
+                  disabled={connecting}
+                >
+                  Disconnect
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => setConnectOpen(true)}
+                disabled={connecting}
+              >
+                {connecting ? "Connecting…" : "Connect wallet"}
+              </button>
+            )}
+            <span className="role-chip">Buyer</span>
+          </div>
         </header>
 
         <div className="dash-content">{children}</div>
@@ -143,6 +175,26 @@ export function BuyerShell({ children }: { children: React.ReactNode }) {
             </div>
             <Nav onNavigate={() => setMobileOpen(false)} />
             <div className="dash-sidebar-footer">
+              {!wallet ? (
+                <button
+                  className="btn btn-primary btn-block"
+                  style={{ marginBottom: 8 }}
+                  onClick={() => {
+                    setMobileOpen(false);
+                    setConnectOpen(true);
+                  }}
+                >
+                  Connect wallet
+                </button>
+              ) : (
+                <button
+                  className="btn btn-ghost btn-block"
+                  style={{ marginBottom: 8 }}
+                  onClick={() => disconnect()}
+                >
+                  Disconnect {shortenAccountId(wallet.accountId)}
+                </button>
+              )}
               <button
                 className="btn btn-ghost btn-block"
                 onClick={() =>
@@ -154,6 +206,10 @@ export function BuyerShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
         </div>
+      )}
+
+      {connectOpen && (
+        <ConnectWalletDialog onClose={() => setConnectOpen(false)} />
       )}
     </div>
   );

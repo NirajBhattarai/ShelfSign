@@ -26,6 +26,7 @@ export interface StockItem {
   count: number;
   confidence: number;
   shelf: string;
+  detectedCount?: number;
 }
 
 export interface Attestation {
@@ -38,6 +39,8 @@ export interface Attestation {
   model_hash: string | null;
   captured_at: string;
   items: StockItem[];
+  cmos_score?: number | null;
+  detection_count?: number | null;
 }
 
 export interface StockRow {

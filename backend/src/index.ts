@@ -11,6 +11,7 @@ import { orderRouter } from "./routes/orders.js";
 import { categoryRouter } from "./routes/categories.js";
 import { warehouseRouter } from "./routes/warehouses.js";
 import { authRouter } from "./routes/auth.js";
+import { x402Router } from "./routes/x402.js";
 
 const app = express();
 const port = process.env.PORT ?? 4000;
@@ -25,6 +26,7 @@ app.get("/health", (_req, res) => res.json({ status: "ok" }));
 app.use("/nonce", nonceRouter);
 app.use("/attestations", attestationRouter);
 app.use("/stock", stockRouter);
+app.use("/x402", x402Router);
 app.use("/cameras", cameraRouter);
 app.use("/suppliers", supplierRouter);
 app.use("/orders", orderRouter);

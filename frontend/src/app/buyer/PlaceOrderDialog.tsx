@@ -31,6 +31,7 @@ export function PlaceOrderDialog({
     try {
       const order = await apiPost<BuyerOrder>("/orders", {
         supplierId: target.warehouse.supplier_id,
+        warehouseId: target.warehouse.id,
         sku: target.item.sku,
         quantity: qty,
         attestationId: target.attestation.id,
@@ -60,18 +61,16 @@ export function PlaceOrderDialog({
 
       <div className="order-summary-strip">
         <div>
-          <div className="detail-label">Available</div>
+          <div className="detail-label">Available to order</div>
           <div className="mono">{target.item.count} units</div>
         </div>
         <div>
-          <div className="detail-label">Shelf</div>
-          <div className="mono">{target.item.shelf}</div>
+          <div className="detail-label">Detected in frame</div>
+          <div className="mono">{target.item.detectedCount ?? 0}</div>
         </div>
         <div>
-          <div className="detail-label">Confidence</div>
-          <div className="mono">
-            {Math.round(target.item.confidence * 100)}%
-          </div>
+          <div className="detail-label">Shelf</div>
+          <div className="mono">{target.item.shelf || "—"}</div>
         </div>
       </div>
 

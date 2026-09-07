@@ -44,7 +44,7 @@ type Phase = "idle" | "challenging" | "attesting" | "done" | "failed";
 
 const PHASE_COPY: Record<Exclude<Phase, "idle" | "done" | "failed">, string> = {
   challenging: "Generating a fresh attestable nonce…",
-  attesting: "SiliconWitness challenge → live YOLO/PyTorch stock count…",
+  attesting: "SiliconWitness challenge → YOLO frame evidence…",
 };
 
 export function AttestWizard({
@@ -174,14 +174,19 @@ export function AttestWizard({
           )}
         </li>
         <li data-done={phase === "done"} data-active={phase === "attesting"}>
-          <strong>3. Live YOLO / PyTorch supply count</strong>
+          <strong>3. YOLO / PyTorch frame evidence</strong>
           <p>
-            Count objects on the same live camera frame used for the silicon
-            challenge — not seeded demo numbers.
+            How many objects the model saw in this frame — evidence only.
+            Declared warehouse stock (what buyers can order) is set separately
+            and is not overwritten here.
           </p>
           {phase === "done" && (
             <div className="attest-readout">
-              Total supply: <span className="mono">{totalUnits}</span> units
+              Detected in frame: <span className="mono">{totalUnits}</span>{" "}
+              units
+              {result?.steps.detection?.detectionCount != null
+                ? ` · ${result.steps.detection.detectionCount} boxes`
+                : ""}
               {result?.steps.detection?.engine
                 ? ` · ${result.steps.detection.engine}`
                 : ""}
@@ -204,7 +209,7 @@ export function AttestWizard({
             className="overlay-title"
             style={{ fontSize: 14, marginBottom: 10 }}
           >
-            Detected supply
+            Detected in frame (evidence)
           </div>
           <table className="data-table">
             <thead>

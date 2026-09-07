@@ -222,7 +222,21 @@ async function seedWarehouse(demo: DemoWarehouse, supplierId: string) {
       .eq("id", cameraId);
   }
 
-  // Replace prior demo attestations for this camera so stock stays current.
+  // Declared inventory (orderable). Attestations below are optional camera proof.
+  await supabase.from("warehouse_stock").delete().eq("warehouse_id", warehouseId);
+  const { error: stockError } = await supabase.from("warehouse_stock").insert(
+    demo.items.map((item) => ({
+      warehouse_id: warehouseId,
+      supplier_id: supplierId,
+      sku: item.sku,
+      quantity: item.count,
+      shelf: item.shelf,
+      updated_at: new Date().toISOString(),
+    })),
+  );
+  if (stockError) throw stockError;
+
+  // Replace prior demo attestations for this camera (evidence only).
   await supabase.from("attestations").delete().eq("camera_id", cameraId);
 
   const nonce = `0x${randomBytes(8).toString("hex")}`;
@@ -238,7 +252,12 @@ async function seedWarehouse(demo: DemoWarehouse, supplierId: string) {
     image_hash: hash(`${demo.name}:${payload}`),
     model: "yolov8n-stock-demo",
     model_hash: hash("yolov8n-stock-demo"),
-    items: demo.items,
+    items: demo.items.map((i) => ({
+      ...i,
+      // Seeded "detected" evidence can match declared for demos; live attest may differ.
+    })),
+    cmos_score: 1,
+    detection_count: demo.items.reduce((n, i) => n + i.count, 0),
     captured_at: capturedAt,
   });
   if (attError) throw attError;

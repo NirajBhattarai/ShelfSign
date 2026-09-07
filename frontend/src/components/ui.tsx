@@ -204,13 +204,14 @@ export function DetailRow({
   mono,
 }: {
   label: string;
-  value: string;
+  value: string | null | undefined;
   mono?: boolean;
 }) {
+  const display = value == null || value === "" ? "—" : value;
   return (
     <div className="detail-row">
       <div className="detail-label">{label}</div>
-      <div className={`detail-value${mono ? " mono" : ""}`}>{value}</div>
+      <div className={`detail-value${mono ? " mono" : ""}`}>{display}</div>
     </div>
   );
 }
