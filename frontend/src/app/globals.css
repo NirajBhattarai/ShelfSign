@@ -236,6 +236,65 @@ a {
   margin: -8px 0 20px;
 }
 
+.fraud-flag {
+  margin: 0 0 16px;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--failed) 55%, var(--hairline-strong));
+  background: var(--failed-bg);
+  color: var(--paper);
+}
+
+.fraud-flag-eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--failed);
+  margin-bottom: 6px;
+}
+
+.fraud-flag-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--failed);
+  margin-bottom: 6px;
+}
+
+.fraud-flag-body {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: color-mix(in srgb, var(--paper) 82%, var(--failed));
+}
+
+.fraud-flag-reasons {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.fraud-flag-reasons li {
+  display: flex;
+  align-items: center;
+}
+
+.fraud-flag-chip {
+  display: inline-block;
+  padding: 2px 8px;
+  border: 1px solid color-mix(in srgb, var(--failed) 40%, transparent);
+  background: color-mix(in srgb, var(--failed) 14%, transparent);
+  color: var(--failed);
+  font-size: 11px;
+}
+
+.meta-chip--fraud {
+  color: var(--failed);
+  border-color: color-mix(in srgb, var(--failed) 45%, var(--hairline-strong));
+  background: var(--failed-bg);
+}
+
 /* ---------- auth split ---------- */
 
 .auth-shell {

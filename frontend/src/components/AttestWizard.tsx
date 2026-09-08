@@ -112,6 +112,8 @@ export function AttestWizard({
     } catch (err) {
       setError(err instanceof Error ? err.message : "Attestation failed.");
       setPhase("failed");
+      // Refetch so supplier UI picks up cameras.is_fake from DB.
+      onComplete?.();
     }
   }
 
@@ -120,10 +122,19 @@ export function AttestWizard({
       <div className="overlay-title">Attest live stock</div>
       <div className="overlay-sub">
         {camera.label}
+        {camera.is_fake
+          ? " · Unverified camera"
+          : " · Verified camera"}
         {camera.enrollment_status === "enrolled"
-          ? " · CMOS enrolled"
-          : " · camera must be enrolled first"}
+          ? " · Enrolled"
+          : " · Enrollment required"}
       </div>
+      {camera.is_fake ? (
+        <div className="field-error" style={{ marginTop: 0, marginBottom: 16 }}>
+          This camera failed its last authenticity check. Resolve the feed or
+          re-enroll before publishing stock buyers can trust.
+        </div>
+      ) : null}
 
       <ol className="attest-steps">
         <li data-done={!!nonce || phase === "done"}>

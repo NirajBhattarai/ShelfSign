@@ -282,11 +282,42 @@ export default function WarehouseDetailClient() {
         <h2 style={{ fontSize: 15, fontWeight: 600, margin: 0 }}>Cameras</h2>
       </div>
       <Ledger empty="No cameras yet — register one to start publishing attested stock.">
-        {warehouseCameras.map((cam) => (
+        {warehouseCameras.map((cam) => {
+          const attestBusy = Boolean(
+            cam.attest_locked_at &&
+              Date.now() - new Date(cam.attest_locked_at).getTime() <
+                3 * 60 * 1000,
+          );
+          return (
           <div key={cam.id} className="ledger-row">
             <div>
-              <div className="row-title">{cam.label}</div>
+              <div className="row-title" style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                {cam.label}
+                {cam.is_fake ? (
+                  <span className="meta-chip" data-tone="danger">
+                    Unverified
+                  </span>
+                ) : (
+                  <span className="meta-chip" data-tone="ok">
+                    Verified camera
+                  </span>
+                )}
+                {attestBusy ? (
+                  <span className="meta-chip" data-tone="warn">
+                    Attest in progress
+                  </span>
+                ) : null}
+              </div>
               <div className="row-sub mono">{cam.host}</div>
+              {cam.is_fake ? (
+                <div className="row-sub" style={{ marginTop: 4 }}>
+                  Camera identity check failed
+                  {cam.fraud_detected_at
+                    ? ` · ${new Date(cam.fraud_detected_at).toLocaleString()}`
+                    : ""}
+                  . Buyers will see a trust warning for this warehouse.
+                </div>
+              ) : null}
             </div>
             <div
               style={{
@@ -300,9 +331,15 @@ export default function WarehouseDetailClient() {
                 <button
                   className="btn btn-primary"
                   style={{ padding: "8px 12px" }}
+                  disabled={attestBusy}
+                  title={
+                    attestBusy
+                      ? "Another attestation is running on this camera"
+                      : undefined
+                  }
                   onClick={() => setAttestingCamera(cam)}
                 >
-                  Attest stock
+                  {attestBusy ? "Attesting…" : "Attest stock"}
                 </button>
               )}
               <button
@@ -315,7 +352,8 @@ export default function WarehouseDetailClient() {
               <LedStatus status={cam.enrollment_status} />
             </div>
           </div>
-        ))}
+          );
+        })}
       </Ledger>
 
       <div className="page-header" style={{ marginTop: 28, marginBottom: 14 }}>
@@ -540,12 +578,9 @@ export default function WarehouseDetailClient() {
         <AttestWizard
           camera={attestingCamera}
           onClose={() => setAttestingCamera(null)}
-          onComplete={() =>
-            showToast(
-              "Camera attestation published (evidence only — stock amounts unchanged).",
-              "success",
-            )
-          }
+          onComplete={() => {
+            void refetchCameras();
+          }}
         />
       )}
     </div>

@@ -6,6 +6,7 @@ import { apiGet, apiGetPaid, apiPost, type X402Challenge } from "@/lib/api";
 import { signExactPaymentHeaderWithSigner } from "@/lib/x402Client";
 import { useHederaWallet } from "@/lib/HederaWalletContext";
 import { PayUnlockDialog } from "@/components/PayUnlockDialog";
+import { FraudFlag } from "@/components/FraudFlag";
 import {
   Badge,
   DetailRow,
@@ -59,6 +60,12 @@ interface StockDetailResponse {
     detection_count?: number | null;
   };
   liveStreamUrl: string | null;
+  camera?: {
+    id: string;
+    label: string | null;
+    isFake: boolean;
+    fraudDetectedAt: string | null;
+  } | null;
   totalUnits?: number;
   detectedTotal?: number;
   trustChecks: TrustCheck[];
@@ -214,44 +221,25 @@ export default function StockDetailPage() {
         },
       );
       setLiveCount(result);
-      // Refresh page data so published attestation totals update.
-      // If this SKU wasn't in the frame, API still returns count 0 (not 404).
+    } catch (err) {
+      setLiveCount(null);
+      const raw =
+        err instanceof Error ? err.message : "Live attestation failed.";
+      const friendly =
+        /cmos_mismatch|signature_invalid|verification_failed/i.test(raw)
+          ? "Camera authenticity could not be confirmed. This warehouse has been marked unverified."
+          : raw;
+      setCountError(friendly);
+    } finally {
+      // Always reload from DB so Fake flag comes from cameras.is_fake only.
       try {
         const refreshed = await apiGet<StockDetailResponse>(
           `/warehouses/${warehouseId}/stock/${encodeURIComponent(sku)}`,
         );
         setDetail(refreshed);
       } catch {
-        const fromLive = (result.items ?? []).find((i) => i.sku === sku);
-        setDetail({
-          ...detail,
-          skuAbsent: !fromLive,
-          item: {
-            ...detail.item,
-            confidence: fromLive?.confidence ?? detail.item.confidence,
-            detectedCount: fromLive?.count ?? 0,
-          },
-          detectedTotal: result.totalUnits,
-          attestation: {
-            ...detail.attestation,
-            id: result.attestationId ?? detail.attestation.id,
-            camera_id: result.cameraId,
-            items: result.items ?? [],
-            image_hash: result.imageHash,
-            model: result.model,
-            nonce: result.nonce ?? detail.attestation.nonce,
-            captured_at: result.countedAt,
-            cmos_score: result.cmosScore ?? detail.attestation.cmos_score,
-            detection_count: result.detectionCount,
-          },
-        });
+        /* keep prior detail */
       }
-    } catch (err) {
-      setLiveCount(null);
-      setCountError(
-        err instanceof Error ? err.message : "Live attestation failed.",
-      );
-    } finally {
       setCounting(false);
     }
   }
@@ -307,8 +295,10 @@ export default function StockDetailPage() {
     );
   }
 
-  const { warehouse, attestation, item, copy, trustChecks, liveStreamUrl } =
+  const { warehouse, attestation, item, copy, trustChecks, liveStreamUrl, camera } =
     detail;
+  /** Fake UI only after DB says so (set when refresh/attest detects CMOS fraud). */
+  const showFakeFlag = Boolean(camera?.isFake);
   const attestedItems = attestation.items ?? [];
   const attestedTotal =
     detail.totalUnits ??
@@ -371,7 +361,11 @@ export default function StockDetailPage() {
           />
 
           <div className="product-detail-badges">
-            <Badge status="verified" />
+            {showFakeFlag ? (
+              <span className="meta-chip meta-chip--fraud">Unverified camera</span>
+            ) : (
+              <Badge status="verified" />
+            )}
             <span className="meta-chip">
               {item.count > 0 ? "Available" : "Out of stock"}
             </span>
@@ -387,6 +381,8 @@ export default function StockDetailPage() {
               </span>
             ) : null}
           </div>
+
+          {showFakeFlag && <FraudFlag />}
 
           <div className="product-detail-figures">
             <div>
@@ -418,7 +414,12 @@ export default function StockDetailPage() {
             </button>
             <button
               className="btn btn-ghost"
-              disabled={item.count < 1}
+              disabled={item.count < 1 || showFakeFlag}
+              title={
+                showFakeFlag
+                  ? "Ordering unavailable while camera authenticity is unverified"
+                  : undefined
+              }
               onClick={() => setOrdering(true)}
             >
               Place order
@@ -586,6 +587,7 @@ export default function StockDetailPage() {
               "Camera proof only — does not change orderable stock."}
           </p>
 
+          {showFakeFlag && <FraudFlag />}
           {countError && <div className="field-error">{countError}</div>}
 
           {liveCount && (

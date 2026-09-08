@@ -247,7 +247,7 @@ cameraRouter.get("/", async (req: AuthedRequest, res) => {
   const { data, error } = await supabase
     .from("cameras")
     .select(
-      "id, warehouse_id, supplier_id, label, host, enrollment_status, cmos_account, created_at, warehouses(name, location)",
+      "id, warehouse_id, supplier_id, label, host, enrollment_status, cmos_account, is_fake, fraud_detected_at, attest_locked_at, attest_locked_by, created_at, warehouses(name, location)",
     )
     .eq("supplier_id", req.user!.id)
     .order("created_at", { ascending: false });
@@ -273,7 +273,7 @@ cameraRouter.post("/:id/attest", async (req: AuthedRequest, res) => {
   const { data: camera } = await supabase
     .from("cameras")
     .select(
-      "id, supplier_id, warehouse_id, label, host, username, password, cmos_account, enrollment_status",
+      "id, supplier_id, warehouse_id, label, host, username, password, cmos_account, enrollment_status, is_fake",
     )
     .eq("id", req.params.id)
     .eq("supplier_id", req.user!.id)
@@ -286,7 +286,10 @@ cameraRouter.post("/:id/attest", async (req: AuthedRequest, res) => {
 
   const body = (req.body ?? {}) as AttestBody;
   try {
-    const result = await runFullAttestation(camera, { nonce: body.nonce });
+    const result = await runFullAttestation(camera, {
+      nonce: body.nonce,
+      lockedBy: req.user!.id,
+    });
     res.status(201).json({
       attestation: result.attestation,
       steps: result.steps,

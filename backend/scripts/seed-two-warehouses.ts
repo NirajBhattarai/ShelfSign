@@ -115,6 +115,7 @@ async function main() {
     password: REAL_PASS,
     enrollment_status: "pending",
     cmos_account: null,
+    is_fake: false,
   });
   if (realCamErr) throw realCamErr;
 
@@ -127,6 +128,7 @@ async function main() {
     password: FAKE_PASS,
     enrollment_status: "pending",
     cmos_account: null,
+    is_fake: false,
   });
   if (fakeCamErr) throw fakeCamErr;
 

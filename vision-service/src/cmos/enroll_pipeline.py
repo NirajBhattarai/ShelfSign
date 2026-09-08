@@ -19,23 +19,33 @@ import string
 import time
 from dataclasses import dataclass
 
+import numpy as np
+
 from .capture import capture_snapshot, saturation_variance
 from .isapi_client import ISAPIClient
-from .isapi_controls import set_ir_brightness, set_ircut_mode, set_osd_text
+from .isapi_controls import set_color, set_ir_brightness, set_ircut_mode, set_osd_text
 from .puf_coords import bits_to_bytes, extract_bits, select_stable_coords_from_burst
 from .puf_fuzzy_extractor import BCHParams, enroll as fx_enroll, pick_bch_params, regenerate as fx_regenerate
 from .puf_keys import derive_address, derive_private_key, zero_key_material
 
-# Tuned down from siliconwitness's research-grade defaults so "Save &
-# enroll" finishes in well under a minute -- at the cost of a smaller
-# empirical-stability sample than the original multi-hour study.
-DEFAULT_N_CAPTURES = 6
-DEFAULT_CAPTURE_INTERVAL_S = 1.0
-DEFAULT_SETTLE_S = 8.0
-DEFAULT_CONFIRM_POLL_S = 15.0
-DEFAULT_CANDIDATE_BITS = 256
-DEFAULT_STABILITY_POOL = 4096
-ASSUMED_WORST_CASE_FLIPS_FLOOR = 13  # ~5% of 256, siliconwitness's decision boundary
+# Tuned toward reliable regen on live Hikvision (challenge must re-derive
+# the same address). Still shorter than siliconwitness research defaults
+# (15 captures / 2s / long settle) so HTTP enroll finishes in ~1–2 min.
+DEFAULT_N_CAPTURES = 12
+DEFAULT_CAPTURE_INTERVAL_S = 2.0
+DEFAULT_SETTLE_S = 10.0
+DEFAULT_CONFIRM_POLL_S = 20.0
+DEFAULT_CANDIDATE_BITS = 384
+DEFAULT_STABILITY_POOL = 6144
+# Floor high enough that BCH t has headroom for live IR drift between
+# enroll and challenge (short bursts often report worst_flips=0).
+ASSUMED_WORST_CASE_FLIPS_FLOOR = 24
+
+# Must match challenge_pipeline.respond_to_challenge defaults — enroll and
+# challenge extract PUF bits under the same IR / brightness / colorMode state.
+ENROLL_IR_LEVEL = 100
+ENROLL_BRIGHTNESS = 50
+ENROLL_COLOR_MODE = "night"
 
 
 @dataclass
@@ -72,9 +82,15 @@ class EnrollmentRecord:
         )
 
 
-def _force_night_mode(client: ISAPIClient, settle_s: float, confirm_poll_s: float) -> None:
-    set_ircut_mode(client, "night")
-    set_ir_brightness(client, 100)
+def _force_challenge_aligned_state(
+    client: ISAPIClient, settle_s: float, confirm_poll_s: float
+) -> None:
+    """Drive the camera to the same actuator state challenge uses before
+    capturing PUF bits. Mismatch here (e.g. enroll without brightness while
+    challenge sets brightness=50) inflates bit flips past BCH capacity."""
+    set_ircut_mode(client, ENROLL_COLOR_MODE)
+    set_ir_brightness(client, ENROLL_IR_LEVEL)
+    set_color(client, brightness=ENROLL_BRIGHTNESS)
 
     t0 = time.monotonic()
     while time.monotonic() - t0 < confirm_poll_s:
@@ -108,7 +124,9 @@ def enroll_from_camera(
     # Hold exclusive camera access for the whole burst so live MJPEG cannot
     # interleave and trip deviceBusy mid-enrollment.
     with camera_snapshot_lock(timeout_s=180.0):
-        _force_night_mode(client, settle_s=settle_s, confirm_poll_s=confirm_poll_s)
+        _force_challenge_aligned_state(
+            client, settle_s=settle_s, confirm_poll_s=confirm_poll_s
+        )
 
         captures = []
         for i in range(n_captures):
@@ -163,10 +181,19 @@ def regenerate_from_camera(
     matches the enrolled address. Returns (address, corrected_bit_errors).
     Raises RuntimeError if BCH decoding fails or the address doesn't match."""
     client = ISAPIClient(host=host, user=username, password=password)
-    _force_night_mode(client, settle_s=settle_s, confirm_poll_s=confirm_poll_s)
+    _force_challenge_aligned_state(
+        client, settle_s=settle_s, confirm_poll_s=confirm_poll_s
+    )
 
-    cap = capture_snapshot(client)
-    bits = extract_bits(cap.array, record.coordinates)
+    # Same majority vote as challenge — keep match() and challenge consistent.
+    bit_rows = []
+    for i in range(3):
+        cap = capture_snapshot(client)
+        bit_rows.append(extract_bits(cap.array, record.coordinates))
+        if i < 2:
+            time.sleep(0.35)
+    stacked = np.stack(bit_rows, axis=0)
+    bits = (stacked.sum(axis=0) >= 2).astype(np.uint8)
     measured_bytes = bits_to_bytes(bits)
 
     bp = record.bch_params

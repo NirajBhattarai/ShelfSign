@@ -619,7 +619,7 @@ warehouseRouter.get("/:id/stock/:sku", async (req: AuthedRequest, res) => {
 
   const { data: cameras } = await supabase
     .from("cameras")
-    .select("id, label, enrollment_status")
+    .select("id, label, enrollment_status, is_fake, fraud_detected_at")
     .eq("warehouse_id", warehouseId);
 
   const cameraIds = (cameras ?? []).map((c) => c.id as string);
@@ -717,6 +717,18 @@ warehouseRouter.get("/:id/stock/:sku", async (req: AuthedRequest, res) => {
       detection_count: matchedAtt?.detection_count ?? null,
     },
     liveStreamUrl,
+    camera: camera
+      ? {
+          id: camera.id,
+          label: camera.label,
+          isFake: Boolean(
+            (camera as { is_fake?: boolean }).is_fake,
+          ),
+          fraudDetectedAt:
+            (camera as { fraud_detected_at?: string | null })
+              .fraud_detected_at ?? null,
+        }
+      : null,
     totalUnits: stock.quantity,
     detectedTotal: detectedItems.reduce(
       (n, i) => n + (Number(i.count) || 0),
@@ -746,7 +758,7 @@ warehouseRouter.post("/:id/count-live", async (req: AuthedRequest, res) => {
   let cameraQuery = supabase
     .from("cameras")
     .select(
-      "id, supplier_id, warehouse_id, host, username, password, cmos_account, enrollment_status, label",
+      "id, supplier_id, warehouse_id, host, username, password, cmos_account, enrollment_status, label, is_fake",
     )
     .eq("warehouse_id", warehouseId)
     .order("created_at", { ascending: true })
@@ -756,7 +768,7 @@ warehouseRouter.post("/:id/count-live", async (req: AuthedRequest, res) => {
     cameraQuery = supabase
       .from("cameras")
       .select(
-        "id, supplier_id, warehouse_id, host, username, password, cmos_account, enrollment_status, label",
+        "id, supplier_id, warehouse_id, host, username, password, cmos_account, enrollment_status, label, is_fake",
       )
       .eq("warehouse_id", warehouseId)
       .eq("id", cameraIdHint)
@@ -780,7 +792,9 @@ warehouseRouter.post("/:id/count-live", async (req: AuthedRequest, res) => {
   }
 
   try {
-    const result = await runFullAttestation(camera);
+    const result = await runFullAttestation(camera, {
+      lockedBy: req.user!.id,
+    });
     res.status(201).json({
       cameraId: result.cameraId,
       cameraLabel: result.cameraLabel,
@@ -798,6 +812,7 @@ warehouseRouter.post("/:id/count-live", async (req: AuthedRequest, res) => {
       attestation: result.attestation,
       steps: result.steps,
       fullAttestation: true,
+      isFake: Boolean(camera.is_fake),
     });
   } catch (err) {
     const { status, body } = attestErrorPayload(err);

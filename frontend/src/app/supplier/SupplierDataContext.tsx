@@ -25,6 +25,10 @@ export interface Camera {
   host: string;
   enrollment_status: "pending" | "enrolled" | "failed";
   cmos_account: string | null;
+  is_fake?: boolean;
+  fraud_detected_at?: string | null;
+  attest_locked_at?: string | null;
+  attest_locked_by?: string | null;
 }
 
 export type OrderStatus = "pending" | "confirmed" | "fulfilled" | "cancelled";

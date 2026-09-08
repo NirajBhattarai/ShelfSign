@@ -15,6 +15,7 @@ import json
 import time
 from typing import Optional
 
+import numpy as np
 from eth_utils import keccak
 
 from .capture import capture_snapshot, mean_luminance, saturation_variance
@@ -33,6 +34,10 @@ SETTLE_S = {
 }
 OSD_CROP = (0, 0, 260, 190)
 OSD_FUZZY_MATCH_THRESHOLD = 0.5
+# Majority-vote fresh captures before BCH decode — cuts single-frame noise
+# that otherwise exceeds correction capacity on live Hikvision JPEG.
+CHALLENGE_BIT_SAMPLES = 3
+CHALLENGE_BIT_INTERVAL_S = 0.35
 
 
 _NIGHT_MODE_SAT_THRESHOLD = 5.0   # saturation variance below which we consider night mode confirmed
@@ -217,7 +222,19 @@ def respond_to_challenge(
         if required_state.get("colorMode") == "mono":
             _confirm_night_mode(client)
 
-        cap = capture_snapshot(client)
+        # Majority-vote several captures so one noisy JPEG doesn't blow BCH.
+        bit_rows = []
+        caps = []
+        for i in range(CHALLENGE_BIT_SAMPLES):
+            c = capture_snapshot(client)
+            caps.append(c)
+            bit_rows.append(extract_bits(c.array, coords))
+            if i < CHALLENGE_BIT_SAMPLES - 1:
+                time.sleep(CHALLENGE_BIT_INTERVAL_S)
+        stacked = np.stack(bit_rows, axis=0)
+        bits = (stacked.sum(axis=0) >= (CHALLENGE_BIT_SAMPLES // 2 + 1)).astype(np.uint8)
+        cap = caps[-1]  # nonce/OSD + imageHash bound to final capture
+
         mean_lum = mean_luminance(cap)
         sat_var = saturation_variance(cap)
         osd_decoded = ocr_osd_nonce(cap, expected=nonce)
@@ -231,7 +248,6 @@ def respond_to_challenge(
         else:
             osd_match = True  # OSD was set; OCR optional for hackathon path
 
-        bits = extract_bits(cap.array, coords)
         measured_bytes = bits_to_bytes(bits)
 
         regen_failed = False

@@ -17,7 +17,64 @@ export interface CameraForAttest {
   enrollment_status: string;
   label?: string | null;
   warehouse_id?: string | null;
+  is_fake?: boolean | null;
 }
+
+/** Stale lock older than this is treated as abandoned (crash / tab close). */
+const ATTEST_LOCK_TTL_MS = 3 * 60 * 1000;
+
+async function acquireAttestLock(
+  cameraId: string,
+  lockedBy: string,
+): Promise<void> {
+  const staleBefore = new Date(Date.now() - ATTEST_LOCK_TTL_MS).toISOString();
+  const now = new Date().toISOString();
+
+  // Claim only if unlocked or lock is stale.
+  const { data, error } = await supabase
+    .from("cameras")
+    .update({
+      attest_locked_at: now,
+      attest_locked_by: lockedBy,
+    })
+    .eq("id", cameraId)
+    .or(`attest_locked_at.is.null,attest_locked_at.lt.${staleBefore}`)
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    throw Object.assign(new Error("attest_lock_failed"), {
+      status: 500,
+      detail: error.message,
+    });
+  }
+  if (!data) {
+    const { data: row } = await supabase
+      .from("cameras")
+      .select("attest_locked_at, attest_locked_by")
+      .eq("id", cameraId)
+      .maybeSingle();
+    throw Object.assign(new Error("attest_in_progress"), {
+      status: 409,
+      detail:
+        "Another user is already running attestation on this camera. Wait until it finishes.",
+      steps: {
+        lock: {
+          lockedAt: row?.attest_locked_at ?? null,
+          lockedBy: row?.attest_locked_by ?? null,
+        },
+      },
+    });
+  }
+}
+
+async function releaseAttestLock(cameraId: string): Promise<void> {
+  await supabase
+    .from("cameras")
+    .update({ attest_locked_at: null, attest_locked_by: null })
+    .eq("id", cameraId);
+}
+
 
 export interface FullAttestResult {
   attestation: Record<string, unknown>;
@@ -149,6 +206,20 @@ async function ensurePufEnrollment(
  * count on the same frame, then persist (replacing prior rows for camera).
  */
 export async function runFullAttestation(
+  camera: CameraForAttest,
+  opts?: { nonce?: string; lockedBy?: string },
+): Promise<FullAttestResult> {
+  const lockedBy = opts?.lockedBy ?? "system";
+  await acquireAttestLock(camera.id, lockedBy);
+
+  try {
+    return await runFullAttestationLocked(camera, opts);
+  } finally {
+    await releaseAttestLock(camera.id);
+  }
+}
+
+async function runFullAttestationLocked(
   camera: CameraForAttest,
   opts?: { nonce?: string },
 ): Promise<FullAttestResult> {
@@ -343,12 +414,38 @@ export async function runFullAttestation(
   });
 
   if (!verified.ok) {
+    // CMOS/PUF/signature failed against the enrolled real sensor — mark unverified.
+    const isFraud =
+      verified.reasons.includes("cmos_mismatch") ||
+      verified.reasons.includes("signature_invalid");
+    if (isFraud) {
+      await supabase
+        .from("cameras")
+        .update({
+          is_fake: true,
+          fraud_detected_at: new Date().toISOString(),
+        })
+        .eq("id", enrolledCamera.id);
+    }
+
     throw Object.assign(new Error("verification_failed"), {
       status: 422,
       reasons: verified.reasons,
-      steps: { ...steps, cmosScore, totalUnits },
+      isFake: isFraud,
+      steps: {
+        ...steps,
+        cmosScore,
+        totalUnits,
+        fraudFlagged: isFraud,
+      },
     });
   }
+
+  // Fresh nonce + PUF match + signature — clear any prior unverified flag.
+  await supabase
+    .from("cameras")
+    .update({ is_fake: false, fraud_detected_at: null })
+    .eq("id", enrolledCamera.id);
 
   await supabase
     .from("attestations")
@@ -409,10 +506,17 @@ export async function runFullAttestation(
       })
       .eq("id", attestation.id);
   } catch (err) {
-    throw Object.assign(
-      new Error(err instanceof Error ? err.message : "hcs_publish_failed"),
-      { status: 502, detail: "HCS publish failed", steps },
-    );
+    const msg = err instanceof Error ? err.message : "hcs_publish_failed";
+    const hint = /HCS not configured|HEDERA_HCS_TOPIC_ID|HEDERA_OPERATOR/i.test(
+      msg,
+    )
+      ? " Run: cd backend && npm run setup:hcs (fund OPERATOR/AGENT at faucet.hedera.com, or set HEDERA_PAT)."
+      : "";
+    throw Object.assign(new Error(msg + hint), {
+      status: 502,
+      detail: "HCS publish failed",
+      steps,
+    });
   }
 
   return {
@@ -473,6 +577,8 @@ export function attestErrorPayload(err: unknown): {
         detail: e.detail,
         reasons: e.reasons,
         steps: e.steps,
+        isFake:
+          "isFake" in e ? Boolean((e as { isFake?: boolean }).isFake) : undefined,
       },
     };
   }

@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "./loadEnv.js";
 import cors from "cors";
 import express from "express";
 
@@ -22,6 +22,15 @@ app.use(cors());
 app.use(express.json({ limit: "8mb" }));
 
 app.get("/health", (_req, res) => res.json({ status: "ok" }));
+app.get("/health/hcs", (_req, res) => {
+  const topic = process.env.HEDERA_HCS_TOPIC_ID?.trim() ?? "";
+  const operator = process.env.HEDERA_OPERATOR_ID?.trim() ?? "";
+  res.json({
+    configured: Boolean(topic && operator && !topic.includes("mock")),
+    topicId: topic || null,
+    operatorId: operator || null,
+  });
+});
 
 app.use("/nonce", nonceRouter);
 app.use("/attestations", attestationRouter);
@@ -36,4 +45,7 @@ app.use("/auth", authRouter);
 
 app.listen(port, () => {
   console.log(`ShelfSign backend listening on :${port}`);
+  console.log(
+    `HCS topic: ${process.env.HEDERA_HCS_TOPIC_ID?.trim() || "(not configured)"}`,
+  );
 });

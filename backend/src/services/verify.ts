@@ -11,14 +11,11 @@ export interface AttestationVerifyInput {
 export interface VerifyResult {
   ok: boolean;
   reasons: string[];
-  pufSoftFail?: boolean;  // true when cmos/sig checks were waived via env flag
+  pufSoftFail?: boolean; // true when cmos/sig checks were waived via env flag
 }
 
-// Set SHELFSIGN_ALLOW_PUF_SOFTFAIL=1 to let detection-only attestations
-// through when PUF key regeneration fails (e.g. demo hardware without stable
-// PRNU, or camera not yet settled into night mode). Waives cmos_mismatch and
-// signature_invalid only — nonce and image_hash checks are never waived.
-// Do NOT enable in production: this removes the hardware-trust root.
+// Set SHELFSIGN_ALLOW_PUF_SOFTFAIL=1 only for local debugging. Production /
+// demo trust path must keep this off: nonce + CMOS/PUF + signature must all pass.
 const ALLOW_PUF_SOFTFAIL =
   process.env.SHELFSIGN_ALLOW_PUF_SOFTFAIL === "1" ||
   process.env.SHELFSIGN_ALLOW_PUF_SOFTFAIL === "true";
@@ -34,8 +31,8 @@ export function verifyAttestation(input: AttestationVerifyInput): VerifyResult {
     reasons.push("image_hash_mismatch");
   if (!input.signatureValid) reasons.push("signature_invalid");
 
-  // Soft-fail path: waive PUF-specific failures for demo/hackathon use.
-  // Nonce and image-hash failures are never waived — those guard replay attacks.
+  // Soft-fail path (env only): waive PUF-specific failures. Nonce and
+  // image-hash failures are never waived — those guard replay attacks.
   if (ALLOW_PUF_SOFTFAIL) {
     const pufReasons = new Set(["cmos_mismatch", "signature_invalid"]);
     const remaining = reasons.filter((r) => !pufReasons.has(r));
