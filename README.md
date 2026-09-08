@@ -154,6 +154,7 @@ Checkboxes mark what is done in the repo today. Unchecked items are still open.
 - [ ] Classical PRNU residual correlation (current path is pixel-stability PUF)
 - [ ] Arc USDC bond / slash
 - [ ] The Graph indexing for bond/slash events
+- [x] Chainlink CRE confidential fraud review (`cre/fraud-review`, TEE `handlerInTee`)
 
 ### Buyer routes
 
@@ -228,8 +229,9 @@ Buyers never get RTSP. The cloud never needs the warehouse’s camera admin pass
 - **Backend:** Node / Express (TypeScript) — nonce, attestations, cameras, warehouses, orders, HCS publish, x402
 - **Vision:** Python FastAPI — YOLO stock detection + CMOS / PUF (SiliconWitness-style) fingerprinting
 - **Data:** Supabase (Postgres + RLS)
-- **Chain (live):** Hedera testnet — HCS attestation log + x402 pay-per-query (HBAR via Blocky402)
-- **Planned:** Arc USDC bond / slash, HTS USDC settle for x402
+- **Chain (live):** Hedera testnet — HCS attestation log + x402 pay-per-query (HTS USDC via Blocky402)
+- **Chainlink CRE:** Confidential fraud review workflow (`cre/`) — TEE scores private camera risk; public CLEAR/HOLD/SLASH only
+- **Planned:** Arc USDC bond / slash (optional; not required for ETHOnline Chainlink track)
 
 ---
 
@@ -238,6 +240,7 @@ Buyers never get RTSP. The cloud never needs the warehouse’s camera admin pass
 ```
 ShelfSign/
 ├── frontend/            Next.js — auth, supplier & buyer dashboards
+├── cre/                 Chainlink CRE confidential fraud-review workflow (TEE)
 ├── backend/             Express — nonce, attest verify, HCS, x402, cameras / warehouses / orders
 ├── vision-service/      FastAPI — YOLO + CMOS/PUF enroll & challenge
 ├── fake-cam/            Demo-only Hikvision ISAPI stub (CMOS-reject demos)

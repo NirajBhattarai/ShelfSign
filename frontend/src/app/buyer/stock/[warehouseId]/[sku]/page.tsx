@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { apiGet, apiGetPaid, apiPostPaid, type X402Challenge } from "@/lib/api";
+import { apiGet, apiGetPaid, apiPost, apiPostPaid, type X402Challenge } from "@/lib/api";
 import { signExactPaymentHeaderWithSigner } from "@/lib/x402Client";
 import { useHederaWallet } from "@/lib/HederaWalletContext";
 import { PayUnlockDialog } from "@/components/PayUnlockDialog";
@@ -94,6 +94,14 @@ export default function StockDetailPage() {
   const [payError, setPayError] = useState<string | null>(null);
   /** "unlock" = stock query; "attest" = live camera proof refresh */
   const [payPurpose, setPayPurpose] = useState<"unlock" | "attest">("unlock");
+  const [creVerdict, setCreVerdict] = useState<{
+    verdict: string;
+    score: number;
+    reason_hash: string;
+    source: string;
+  } | null>(null);
+  const [creBusy, setCreBusy] = useState(false);
+  const [creError, setCreError] = useState<string | null>(null);
   const { getClientSigner } = useHederaWallet();
 
   useEffect(() => {
@@ -169,6 +177,36 @@ export default function StockDetailPage() {
         err instanceof Error ? err.message : "Couldn't start payment.";
       if (msg !== "Payment cancelled") setCountError(msg);
       setCounting(false);
+    }
+  }
+
+  async function runCreReview() {
+    const attestationId = detail?.attestation?.id;
+    if (!attestationId) return;
+    setCreBusy(true);
+    setCreError(null);
+    try {
+      await apiPost<{ reviewId: string }>("/cre/reviews", {
+        attestationId,
+        requestedBy: "buyer",
+      });
+      // Local mirror so the UI works without the CRE CLI running.
+      // Prize demo: also run `cre workflow simulate fraud-review …`.
+      const local = await apiPost<{
+        verdict: {
+          verdict: string;
+          score: number;
+          reason_hash: string;
+          source: string;
+        };
+      }>(`/cre/reviews/${attestationId}/run-local`);
+      setCreVerdict(local.verdict);
+    } catch (err) {
+      setCreError(
+        err instanceof Error ? err.message : "CRE review failed.",
+      );
+    } finally {
+      setCreBusy(false);
     }
   }
 
@@ -624,6 +662,10 @@ export default function StockDetailPage() {
             setShowAttest(false);
             setOrdering(true);
           }}
+          creVerdict={creVerdict}
+          creBusy={creBusy}
+          creError={creError}
+          onCreReview={runCreReview}
         />
       )}
 

@@ -12,6 +12,7 @@ import { categoryRouter } from "./routes/categories.js";
 import { warehouseRouter } from "./routes/warehouses.js";
 import { authRouter } from "./routes/auth.js";
 import { x402Router } from "./routes/x402.js";
+import { creRouter } from "./routes/cre.js";
 
 const app = express();
 const port = process.env.PORT ?? 4000;
@@ -42,6 +43,7 @@ app.use("/orders", orderRouter);
 app.use("/categories", categoryRouter);
 app.use("/warehouses", warehouseRouter);
 app.use("/auth", authRouter);
+app.use("/cre", creRouter);
 
 app.listen(port, () => {
   console.log(`ShelfSign backend listening on :${port}`);

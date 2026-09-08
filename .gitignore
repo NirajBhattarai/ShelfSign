@@ -8,6 +8,11 @@ dist/
 # Env
 .env
 .env.local
+cre/.env
+
+# CRE workflow deps
+cre/**/node_modules/
+cre/**/dist/
 
 # Python
 __pycache__/
