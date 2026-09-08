@@ -13,6 +13,7 @@ import {
   attestErrorPayload,
   runFullAttestation,
 } from "../services/attestCamera.js";
+import { requireX402Payment } from "../services/x402.js";
 
 export const warehouseRouter = Router();
 
@@ -736,82 +737,89 @@ warehouseRouter.get("/:id/stock/:sku", async (req: AuthedRequest, res) => {
       overlaySub: detected
         ? `Camera proof for ${matchedItem.sku} at ${warehouse.name}. Orderable quantity is supplier-declared (${matchedItem.count}); vision detected ${matchedItem.detectedCount} in the latest frame.`
         : `Orderable quantity for ${matchedItem.sku} is supplier-declared (${matchedItem.count}). Latest camera frame did not detect this SKU (vision can miss shadow/background items).`,
-      countLiveLabel: "Refresh camera proof",
-      countLiveBusy: "Running attestation (OSD + PUF + YOLO evidence)…",
+      countLiveLabel: "Pay & refresh proof",
+      countLiveBusy: "Paying & attesting…",
       countLiveHint:
-        "Re-runs SiliconWitness attestation for trust. Does not change the supplier-declared stock amount you can order.",
+        "Pay with x402 to re-run live CMOS + nonce proof. Orderable stock stays supplier-declared.",
     },
   });
 });
 
-// Full attestation from the buyer View-attestation UI: OSD + PUF + YOLO,
-// then persist (same pipeline as supplier Attest stock).
-warehouseRouter.post("/:id/count-live", async (req: AuthedRequest, res) => {
-  const warehouseId = req.params.id;
-  const cameraIdHint =
-    typeof req.body?.cameraId === "string" ? req.body.cameraId : null;
+// Paid live attestation from the buyer View-attestation modal (x402 required).
+warehouseRouter.post(
+  "/:id/count-live",
+  requireX402Payment({
+    description:
+      "ShelfSign live camera proof refresh (CMOS + nonce + YOLO → HCS)",
+    resourcePath: (req) => `/warehouses/${req.params.id}/count-live`,
+  }),
+  async (req: AuthedRequest, res) => {
+    const warehouseId = req.params.id;
+    const cameraIdHint =
+      typeof req.body?.cameraId === "string" ? req.body.cameraId : null;
 
-  let cameraQuery = supabase
-    .from("cameras")
-    .select(
-      "id, supplier_id, warehouse_id, host, username, password, cmos_account, enrollment_status, label, is_fake",
-    )
-    .eq("warehouse_id", warehouseId)
-    .order("created_at", { ascending: true })
-    .limit(1);
-
-  if (cameraIdHint) {
-    cameraQuery = supabase
+    let cameraQuery = supabase
       .from("cameras")
       .select(
         "id, supplier_id, warehouse_id, host, username, password, cmos_account, enrollment_status, label, is_fake",
       )
       .eq("warehouse_id", warehouseId)
-      .eq("id", cameraIdHint)
+      .order("created_at", { ascending: true })
       .limit(1);
-  }
 
-  const { data: cameras, error: camError } = await cameraQuery;
-  if (camError) {
-    res
-      .status(500)
-      .json({ error: "camera_query_failed", detail: camError.message });
-    return;
-  }
-  const camera = cameras?.[0];
-  if (!camera) {
-    res.status(404).json({
-      error: "no_camera",
-      detail: "No camera found for this warehouse.",
-    });
-    return;
-  }
+    if (cameraIdHint) {
+      cameraQuery = supabase
+        .from("cameras")
+        .select(
+          "id, supplier_id, warehouse_id, host, username, password, cmos_account, enrollment_status, label, is_fake",
+        )
+        .eq("warehouse_id", warehouseId)
+        .eq("id", cameraIdHint)
+        .limit(1);
+    }
 
-  try {
-    const result = await runFullAttestation(camera, {
-      lockedBy: req.user!.id,
-    });
-    res.status(201).json({
-      cameraId: result.cameraId,
-      cameraLabel: result.cameraLabel,
-      items: result.items,
-      totalUnits: result.totalUnits,
-      detectionCount: result.detectionCount,
-      model: result.model,
-      modelHash: result.modelHash,
-      imageHash: result.imageHash,
-      engine: result.engine,
-      countedAt: result.countedAt,
-      nonce: result.nonce,
-      cmosScore: result.cmosScore,
-      attestationId: (result.attestation as { id?: string }).id ?? null,
-      attestation: result.attestation,
-      steps: result.steps,
-      fullAttestation: true,
-      isFake: Boolean(camera.is_fake),
-    });
-  } catch (err) {
-    const { status, body } = attestErrorPayload(err);
-    res.status(status).json(body);
-  }
-});
+    const { data: cameras, error: camError } = await cameraQuery;
+    if (camError) {
+      res
+        .status(500)
+        .json({ error: "camera_query_failed", detail: camError.message });
+      return;
+    }
+    const camera = cameras?.[0];
+    if (!camera) {
+      res.status(404).json({
+        error: "no_camera",
+        detail: "No camera found for this warehouse.",
+      });
+      return;
+    }
+
+    try {
+      const result = await runFullAttestation(camera, {
+        lockedBy: req.user!.id,
+      });
+      res.status(201).json({
+        cameraId: result.cameraId,
+        cameraLabel: result.cameraLabel,
+        items: result.items,
+        totalUnits: result.totalUnits,
+        detectionCount: result.detectionCount,
+        model: result.model,
+        modelHash: result.modelHash,
+        imageHash: result.imageHash,
+        engine: result.engine,
+        countedAt: result.countedAt,
+        nonce: result.nonce,
+        cmosScore: result.cmosScore,
+        attestationId: (result.attestation as { id?: string }).id ?? null,
+        attestation: result.attestation,
+        steps: result.steps,
+        fullAttestation: true,
+        isFake: Boolean(camera.is_fake),
+      });
+    } catch (err) {
+      const { status, body } = attestErrorPayload(err);
+      res.status(status).json(body);
+    }
+  },
+);

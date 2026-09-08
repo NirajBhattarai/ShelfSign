@@ -7,11 +7,11 @@ const DEFAULT_BUYER_STOCK_COPY = {
   liveUnavailable: "Live camera unavailable for this warehouse",
   liveConnecting: "Connecting to live camera…",
   liveFallback: "Live feed unavailable — warehouse photo",
-  overlayTitle: "Warehouse attestation",
-  countLiveLabel: "Attest live frame",
-  countLiveBusy: "Running full attestation (OSD + PUF + YOLO)…",
+  overlayTitle: "Attestation",
+  countLiveLabel: "Pay & refresh proof",
+  countLiveBusy: "Paying & attesting…",
   countLiveHint:
-    "Runs a full SiliconWitness attestation: OSD nonce, PUF identity, then YOLO count on that frame.",
+    "Pay with x402 to re-run live CMOS + nonce proof. Orderable stock stays supplier-declared.",
 };
 
 export type SystemSettingKey =

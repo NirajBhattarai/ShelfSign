@@ -142,12 +142,7 @@ export async function verifyAndSettle(opts: {
   requirements: PaymentRequirements;
 }): Promise<SettleResult> {
   const raw = opts.paymentRaw.trim();
-  if (
-    !raw ||
-    raw === "mock" ||
-    raw === "1" ||
-    raw.startsWith("mock:")
-  ) {
+  if (!raw || raw === "mock" || raw === "1" || raw.startsWith("mock:")) {
     return {
       success: false,
       error: "real_payment_signature_required",
@@ -245,7 +240,7 @@ export function requireX402Payment(opts: {
           x402Version: 2,
           accepts: [requirements],
           resource,
-          error: "Payment required to access attested stock query",
+          error: "Payment required (x402)",
         };
         res.setHeader("Content-Type", "application/json");
         res.setHeader(

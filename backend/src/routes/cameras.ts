@@ -11,6 +11,7 @@ import {
   attestErrorPayload,
   runFullAttestation,
 } from "../services/attestCamera.js";
+import { requireX402Payment } from "../services/x402.js";
 
 export const cameraRouter = Router();
 
@@ -263,39 +264,48 @@ interface AttestBody {
   nonce?: string;
 }
 
-// SiliconWitness challenge-response → YOLO stock count → verified attestation.
-cameraRouter.post("/:id/attest", async (req: AuthedRequest, res) => {
-  if (req.user!.role !== "supplier") {
-    res.status(403).json({ error: "supplier_only" });
-    return;
-  }
+// SiliconWitness challenge-response → YOLO → verified attestation.
+// Requires settled x402 payment (no free attest).
+cameraRouter.post(
+  "/:id/attest",
+  requireX402Payment({
+    description:
+      "ShelfSign live camera attestation (CMOS + nonce + YOLO → HCS)",
+    resourcePath: (req) => `/cameras/${req.params.id}/attest`,
+  }),
+  async (req: AuthedRequest, res) => {
+    if (req.user!.role !== "supplier") {
+      res.status(403).json({ error: "supplier_only" });
+      return;
+    }
 
-  const { data: camera } = await supabase
-    .from("cameras")
-    .select(
-      "id, supplier_id, warehouse_id, label, host, username, password, cmos_account, enrollment_status, is_fake",
-    )
-    .eq("id", req.params.id)
-    .eq("supplier_id", req.user!.id)
-    .maybeSingle();
+    const { data: camera } = await supabase
+      .from("cameras")
+      .select(
+        "id, supplier_id, warehouse_id, label, host, username, password, cmos_account, enrollment_status, is_fake",
+      )
+      .eq("id", req.params.id)
+      .eq("supplier_id", req.user!.id)
+      .maybeSingle();
 
-  if (!camera) {
-    res.status(404).json({ error: "camera_not_found" });
-    return;
-  }
+    if (!camera) {
+      res.status(404).json({ error: "camera_not_found" });
+      return;
+    }
 
-  const body = (req.body ?? {}) as AttestBody;
-  try {
-    const result = await runFullAttestation(camera, {
-      nonce: body.nonce,
-      lockedBy: req.user!.id,
-    });
-    res.status(201).json({
-      attestation: result.attestation,
-      steps: result.steps,
-    });
-  } catch (err) {
-    const { status, body: payload } = attestErrorPayload(err);
-    res.status(status).json(payload);
-  }
-});
+    const body = (req.body ?? {}) as AttestBody;
+    try {
+      const result = await runFullAttestation(camera, {
+        nonce: body.nonce,
+        lockedBy: req.user!.id,
+      });
+      res.status(201).json({
+        attestation: result.attestation,
+        steps: result.steps,
+      });
+    } catch (err) {
+      const { status, body: payload } = attestErrorPayload(err);
+      res.status(status).json(payload);
+    }
+  },
+);

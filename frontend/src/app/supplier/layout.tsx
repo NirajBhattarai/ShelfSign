@@ -6,6 +6,7 @@ import { useProfile } from "@/lib/useProfile";
 import { ToastProvider } from "@/components/toast";
 import { SupplierShell } from "@/components/SupplierShell";
 import { SupplierDataProvider } from "./SupplierDataContext";
+import { HederaWalletProvider } from "@/lib/HederaWalletContext";
 
 export default function SupplierLayout({
   children,
@@ -25,9 +26,11 @@ export default function SupplierLayout({
 
   return (
     <ToastProvider>
-      <SupplierDataProvider>
-        <SupplierShell>{children}</SupplierShell>
-      </SupplierDataProvider>
+      <HederaWalletProvider>
+        <SupplierDataProvider>
+          <SupplierShell>{children}</SupplierShell>
+        </SupplierDataProvider>
+      </HederaWalletProvider>
     </ToastProvider>
   );
 }

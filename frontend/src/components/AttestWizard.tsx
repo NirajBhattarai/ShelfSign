@@ -1,8 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { apiPost } from "@/lib/api";
+import { apiPost, apiPostPaid, type X402Challenge } from "@/lib/api";
 import { Overlay } from "@/components/ui";
+import { PayUnlockDialog } from "@/components/PayUnlockDialog";
+import { useHederaWallet } from "@/lib/HederaWalletContext";
+import { signExactPaymentHeaderWithSigner } from "@/lib/x402Client";
 import type { Camera } from "@/app/supplier/SupplierDataContext";
 
 interface StockItem {
@@ -41,11 +44,13 @@ interface AttestResult {
   };
 }
 
-type Phase = "idle" | "challenging" | "attesting" | "done" | "failed";
+type Phase =
+  "idle" | "challenging" | "paying" | "attesting" | "done" | "failed";
 
-const PHASE_COPY: Record<Exclude<Phase, "idle" | "done" | "failed">, string> = {
+const PHASE_COPY: Record<"challenging" | "paying" | "attesting", string> = {
   challenging: "Generating a fresh attestable nonce…",
-  attesting: "SiliconWitness challenge → YOLO frame evidence…",
+  paying: "Waiting for x402 payment…",
+  attesting: "SiliconWitness challenge → YOLO frame evidence → HCS…",
 };
 
 export function AttestWizard({
@@ -57,13 +62,21 @@ export function AttestWizard({
   onClose: () => void;
   onComplete?: () => void;
 }) {
+  const { getClientSigner } = useHederaWallet();
   const [phase, setPhase] = useState<Phase>("idle");
   const [nonce, setNonce] = useState<string | null>(null);
   const [expiresInMs, setExpiresInMs] = useState<number | null>(null);
   const [result, setResult] = useState<AttestResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [payOpen, setPayOpen] = useState(false);
+  const [payChallenge, setPayChallenge] = useState<X402Challenge | null>(null);
+  const [paying, setPaying] = useState(false);
 
-  const busy = phase === "challenging" || phase === "attesting";
+  const busy =
+    phase === "challenging" ||
+    phase === "paying" ||
+    phase === "attesting" ||
+    paying;
   const items =
     result?.steps.detection?.items ?? result?.attestation.items ?? [];
   const totalUnits =
@@ -88,9 +101,9 @@ export function AttestWizard({
     }
   }
 
-  async function runAttestation() {
+  async function startPayAndAttest() {
     setError(null);
-    setPhase("attesting");
+    setPhase("paying");
     try {
       let activeNonce = nonce;
       if (!activeNonce) {
@@ -102,191 +115,236 @@ export function AttestWizard({
         setExpiresInMs(challenge.expiresInMs);
       }
 
-      const attested = await apiPost<AttestResult>(
+      await apiPostPaid<AttestResult>(
         `/cameras/${camera.id}/attest`,
         { nonce: activeNonce },
+        {
+          onChallenge: async (challenge) => {
+            setPayChallenge(challenge);
+            setPayOpen(true);
+            return false;
+          },
+        },
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Attestation failed.";
+      if (msg !== "Payment cancelled") {
+        setError(msg);
+        setPhase("failed");
+      } else {
+        setPhase("idle");
+      }
+    }
+  }
+
+  async function confirmPayAttest() {
+    if (!payChallenge || !nonce) return;
+    setPaying(true);
+    setError(null);
+    setPhase("attesting");
+    try {
+      const requirements = payChallenge.accepts?.[0];
+      if (!requirements) throw new Error("Challenge missing requirements.");
+      const signer = await getClientSigner();
+      const signed = await signExactPaymentHeaderWithSigner(
+        requirements,
+        signer,
+      );
+      const attested = await apiPostPaid<AttestResult>(
+        `/cameras/${camera.id}/attest`,
+        { nonce },
+        { paymentSignature: signed.paymentHeader },
       );
       setResult(attested);
       setPhase("done");
+      setPayOpen(false);
+      setPayChallenge(null);
       onComplete?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Attestation failed.");
       setPhase("failed");
-      // Refetch so supplier UI picks up cameras.is_fake from DB.
       onComplete?.();
+    } finally {
+      setPaying(false);
     }
   }
 
   return (
-    <Overlay onClose={busy ? () => undefined : onClose} wide>
-      <div className="overlay-title">Attest live stock</div>
-      <div className="overlay-sub">
-        {camera.label}
-        {camera.is_fake
-          ? " · Unverified camera"
-          : " · Verified camera"}
-        {camera.enrollment_status === "enrolled"
-          ? " · Enrolled"
-          : " · Enrollment required"}
-      </div>
-      {camera.is_fake ? (
-        <div className="field-error" style={{ marginTop: 0, marginBottom: 16 }}>
-          This camera failed its last authenticity check. Resolve the feed or
-          re-enroll before publishing stock buyers can trust.
+    <>
+      <Overlay onClose={busy ? () => undefined : onClose} wide>
+        <div className="overlay-title">Pay & attest live stock</div>
+        <div className="overlay-sub">
+          {camera.label}
+          {camera.is_fake ? " · Unverified camera" : " · Verified camera"}
+          {camera.enrollment_status === "enrolled"
+            ? " · Enrolled"
+            : " · Enrollment required"}
+          {" · x402 required"}
         </div>
-      ) : null}
-
-      <ol className="attest-steps">
-        <li data-done={!!nonce || phase === "done"}>
-          <strong>1. Challenge nonce</strong>
-          <p>Server issues a one-time random nonce (2‑minute TTL).</p>
-          {nonce && (
-            <div className="attest-nonce mono" title={nonce}>
-              {nonce}
-            </div>
-          )}
-          {expiresInMs != null && nonce && phase !== "done" && (
-            <div className="row-sub">
-              Expires in {Math.round(expiresInMs / 1000)}s
-            </div>
-          )}
-        </li>
-        <li data-done={phase === "done"} data-active={phase === "attesting"}>
-          <strong>2. SiliconWitness challenge</strong>
-          <p>
-            Drive OSD nonce + IR/brightness, regenerate the PUF signing key, and
-            verify the silicon identity matches enrollment.
-          </p>
-          {result?.steps.cmosMatch && (
-            <div className="attest-readout">
-              Match:{" "}
-              <span className="mono">
-                {result.steps.cmosMatch.match ? "yes" : "no"}
-              </span>
-              {" · "}
-              score{" "}
-              <span className="mono">
-                {(
-                  result.steps.cmosMatch.score ??
-                  result.steps.cmosScore ??
-                  0
-                ).toFixed(3)}
-              </span>
-              {typeof result.steps.cmosMatch.correctedBitErrors ===
-                "number" && (
-                <>
-                  {" · "}
-                  BCH corrections{" "}
-                  <span className="mono">
-                    {result.steps.cmosMatch.correctedBitErrors}
-                  </span>
-                </>
-              )}
-            </div>
-          )}
-        </li>
-        <li data-done={phase === "done"} data-active={phase === "attesting"}>
-          <strong>3. YOLO / PyTorch frame evidence</strong>
-          <p>
-            How many objects the model saw in this frame — evidence only.
-            Declared warehouse stock (what buyers can order) is set separately
-            and is not overwritten here.
-          </p>
-          {phase === "done" && (
-            <div className="attest-readout">
-              Detected in frame: <span className="mono">{totalUnits}</span>{" "}
-              units
-              {result?.steps.detection?.detectionCount != null
-                ? ` · ${result.steps.detection.detectionCount} boxes`
-                : ""}
-              {result?.steps.detection?.engine
-                ? ` · ${result.steps.detection.engine}`
-                : ""}
-            </div>
-          )}
-        </li>
-      </ol>
-
-      {(phase === "challenging" || phase === "attesting") && (
-        <div className="attest-progress" role="status" aria-live="polite">
-          {PHASE_COPY[phase]}
-        </div>
-      )}
-
-      {error && <div className="field-error">{error}</div>}
-
-      {phase === "done" && items.length > 0 && (
-        <div className="attest-items">
+        {camera.is_fake ? (
           <div
-            className="overlay-title"
-            style={{ fontSize: 14, marginBottom: 10 }}
+            className="field-error"
+            style={{ marginTop: 0, marginBottom: 16 }}
           >
-            Detected in frame (evidence)
+            This camera failed its last authenticity check. Resolve the feed or
+            re-enroll before publishing stock buyers can trust.
           </div>
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Category</th>
-                <th>Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((item) => (
-                <tr key={item.sku}>
-                  <td className="mono">{item.category ?? item.sku}</td>
-                  <td className="mono">{item.count}</td>
-                </tr>
-              ))}
-              <tr>
-                <td>
-                  <strong>Sum</strong>
-                </td>
-                <td className="mono">
-                  <strong>{totalUnits}</strong>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      )}
+        ) : null}
 
-      {phase === "done" && items.length === 0 && (
-        <div className="row-sub" style={{ marginBottom: 16 }}>
-          Attestation saved, but YOLO found no stock classes in this frame.
-          Point the camera at shelf inventory and try again.
-        </div>
-      )}
+        <ol className="attest-steps">
+          <li data-done={!!nonce || phase === "done"}>
+            <strong>1. Challenge nonce</strong>
+            <p>Server issues a one-time random nonce (2‑minute TTL).</p>
+            {nonce && (
+              <div className="attest-nonce mono" title={nonce}>
+                {nonce}
+              </div>
+            )}
+            {expiresInMs != null && nonce && phase !== "done" && (
+              <div className="row-sub">
+                Expires in {Math.round(expiresInMs / 1000)}s
+              </div>
+            )}
+          </li>
+          <li
+            data-done={phase === "done"}
+            data-active={phase === "paying" || phase === "attesting"}
+          >
+            <strong>2. Pay x402 + SiliconWitness challenge</strong>
+            <p>
+              Settle HBAR via x402, then drive OSD nonce + IR, regenerate the
+              PUF key, and verify silicon identity.
+            </p>
+            {result?.steps.cmosMatch && (
+              <div className="attest-readout">
+                Match:{" "}
+                <span className="mono">
+                  {result.steps.cmosMatch.match ? "yes" : "no"}
+                </span>
+                {" · "}
+                score{" "}
+                <span className="mono">
+                  {(
+                    result.steps.cmosMatch.score ??
+                    result.steps.cmosScore ??
+                    0
+                  ).toFixed(3)}
+                </span>
+              </div>
+            )}
+          </li>
+          <li data-done={phase === "done"} data-active={phase === "attesting"}>
+            <strong>3. YOLO evidence → HCS</strong>
+            <p>
+              Frame evidence only. Declared warehouse stock is set separately.
+            </p>
+            {phase === "done" && (
+              <div className="attest-readout">
+                Detected in frame: <span className="mono">{totalUnits}</span>{" "}
+                units
+              </div>
+            )}
+          </li>
+        </ol>
 
-      <div className="confirm-actions">
-        <button
-          className="btn btn-ghost"
-          style={{ flex: 1 }}
-          onClick={onClose}
-          disabled={busy}
-        >
-          {phase === "done" ? "Close" : "Cancel"}
-        </button>
-        {phase !== "done" && (
-          <>
-            <button
-              className="btn btn-ghost"
-              style={{ flex: 1 }}
-              onClick={generateNonce}
-              disabled={busy || camera.enrollment_status !== "enrolled"}
-            >
-              {nonce ? "New nonce" : "Generate nonce"}
-            </button>
-            <button
-              className="btn btn-primary"
-              style={{ flex: 1 }}
-              onClick={runAttestation}
-              disabled={busy || camera.enrollment_status !== "enrolled"}
-            >
-              {phase === "attesting" ? "Attesting…" : "Attest now"}
-            </button>
-          </>
+        {(phase === "challenging" ||
+          phase === "paying" ||
+          phase === "attesting") && (
+          <div className="attest-progress" role="status" aria-live="polite">
+            {PHASE_COPY[phase as "challenging" | "paying" | "attesting"]}
+          </div>
         )}
-      </div>
-    </Overlay>
+
+        {error && <div className="field-error">{error}</div>}
+
+        {phase === "done" && items.length > 0 && (
+          <div className="attest-items">
+            <div
+              className="overlay-title"
+              style={{ fontSize: 14, marginBottom: 10 }}
+            >
+              Detected in frame (evidence)
+            </div>
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Category</th>
+                  <th>Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((item) => (
+                  <tr key={item.sku}>
+                    <td className="mono">{item.category ?? item.sku}</td>
+                    <td className="mono">{item.count}</td>
+                  </tr>
+                ))}
+                <tr>
+                  <td>
+                    <strong>Sum</strong>
+                  </td>
+                  <td className="mono">
+                    <strong>{totalUnits}</strong>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <div className="confirm-actions">
+          <button
+            className="btn btn-ghost"
+            style={{ flex: 1 }}
+            onClick={onClose}
+            disabled={busy}
+          >
+            {phase === "done" ? "Close" : "Cancel"}
+          </button>
+          {phase !== "done" && (
+            <>
+              <button
+                className="btn btn-ghost"
+                style={{ flex: 1 }}
+                onClick={generateNonce}
+                disabled={busy || camera.enrollment_status !== "enrolled"}
+              >
+                {nonce ? "New nonce" : "Generate nonce"}
+              </button>
+              <button
+                className="btn btn-primary"
+                style={{ flex: 1 }}
+                onClick={startPayAndAttest}
+                disabled={busy || camera.enrollment_status !== "enrolled"}
+              >
+                {phase === "attesting" || phase === "paying"
+                  ? "Pay & attest…"
+                  : "Pay & attest live"}
+              </button>
+            </>
+          )}
+        </div>
+      </Overlay>
+
+      {payOpen && payChallenge && (
+        <PayUnlockDialog
+          title="Pay & attest live"
+          subtitle={`${camera.label} · CMOS + nonce + YOLO → HCS · Hedera x402`}
+          confirmVerb="Pay & attest"
+          sku={camera.label}
+          warehouseName="Live camera attestation"
+          challenge={payChallenge}
+          busy={paying}
+          error={error}
+          onConfirm={confirmPayAttest}
+          onCancel={() => {
+            if (paying) return;
+            setPayOpen(false);
+            setPayChallenge(null);
+            setPhase("idle");
+          }}
+        />
+      )}
+    </>
   );
 }

@@ -33,7 +33,9 @@ function categoryForSku(sku: string): string {
 }
 
 function skuForCategory(category: string): string {
-  return CATEGORY_TO_SKU[category] ?? category.toUpperCase().replace(/\s+/g, "_");
+  return (
+    CATEGORY_TO_SKU[category] ?? category.toUpperCase().replace(/\s+/g, "_")
+  );
 }
 
 function parseNonNegativeInt(raw: string): number {
@@ -151,9 +153,8 @@ export default function WarehouseDetailClient() {
   function addStockRow() {
     const used = new Set(stockRows.map((r) => r.sku.toUpperCase()));
     const nextCategory =
-      (warehouse?.categories ?? []).find(
-        (c) => !used.has(skuForCategory(c)),
-      ) ?? warehouse?.categories?.[0] ??
+      (warehouse?.categories ?? []).find((c) => !used.has(skuForCategory(c))) ??
+      warehouse?.categories?.[0] ??
       "Chair";
     setStockRows((prev) => [
       ...prev,
@@ -285,73 +286,81 @@ export default function WarehouseDetailClient() {
         {warehouseCameras.map((cam) => {
           const attestBusy = Boolean(
             cam.attest_locked_at &&
-              Date.now() - new Date(cam.attest_locked_at).getTime() <
-                3 * 60 * 1000,
+            Date.now() - new Date(cam.attest_locked_at).getTime() <
+              3 * 60 * 1000,
           );
           return (
-          <div key={cam.id} className="ledger-row">
-            <div>
-              <div className="row-title" style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                {cam.label}
+            <div key={cam.id} className="ledger-row">
+              <div>
+                <div
+                  className="row-title"
+                  style={{
+                    display: "flex",
+                    gap: 8,
+                    alignItems: "center",
+                    flexWrap: "wrap",
+                  }}
+                >
+                  {cam.label}
+                  {cam.is_fake ? (
+                    <span className="meta-chip" data-tone="danger">
+                      Unverified
+                    </span>
+                  ) : (
+                    <span className="meta-chip" data-tone="ok">
+                      Verified camera
+                    </span>
+                  )}
+                  {attestBusy ? (
+                    <span className="meta-chip" data-tone="warn">
+                      Attest in progress
+                    </span>
+                  ) : null}
+                </div>
+                <div className="row-sub mono">{cam.host}</div>
                 {cam.is_fake ? (
-                  <span className="meta-chip" data-tone="danger">
-                    Unverified
-                  </span>
-                ) : (
-                  <span className="meta-chip" data-tone="ok">
-                    Verified camera
-                  </span>
-                )}
-                {attestBusy ? (
-                  <span className="meta-chip" data-tone="warn">
-                    Attest in progress
-                  </span>
+                  <div className="row-sub" style={{ marginTop: 4 }}>
+                    Camera identity check failed
+                    {cam.fraud_detected_at
+                      ? ` · ${new Date(cam.fraud_detected_at).toLocaleString()}`
+                      : ""}
+                    . Buyers will see a trust warning for this warehouse.
+                  </div>
                 ) : null}
               </div>
-              <div className="row-sub mono">{cam.host}</div>
-              {cam.is_fake ? (
-                <div className="row-sub" style={{ marginTop: 4 }}>
-                  Camera identity check failed
-                  {cam.fraud_detected_at
-                    ? ` · ${new Date(cam.fraud_detected_at).toLocaleString()}`
-                    : ""}
-                  . Buyers will see a trust warning for this warehouse.
-                </div>
-              ) : null}
-            </div>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 12,
-                flexWrap: "wrap",
-              }}
-            >
-              {cam.enrollment_status === "enrolled" && (
-                <button
-                  className="btn btn-primary"
-                  style={{ padding: "8px 12px" }}
-                  disabled={attestBusy}
-                  title={
-                    attestBusy
-                      ? "Another attestation is running on this camera"
-                      : undefined
-                  }
-                  onClick={() => setAttestingCamera(cam)}
-                >
-                  {attestBusy ? "Attesting…" : "Attest stock"}
-                </button>
-              )}
-              <button
-                className="link-btn"
-                style={{ marginTop: 0 }}
-                onClick={() => openLiveView(cam)}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 12,
+                  flexWrap: "wrap",
+                }}
               >
-                View live
-              </button>
-              <LedStatus status={cam.enrollment_status} />
+                {cam.enrollment_status === "enrolled" && (
+                  <button
+                    className="btn btn-primary"
+                    style={{ padding: "8px 12px" }}
+                    disabled={attestBusy}
+                    title={
+                      attestBusy
+                        ? "Another attestation is running on this camera"
+                        : undefined
+                    }
+                    onClick={() => setAttestingCamera(cam)}
+                  >
+                    {attestBusy ? "Attesting…" : "Pay & attest"}
+                  </button>
+                )}
+                <button
+                  className="link-btn"
+                  style={{ marginTop: 0 }}
+                  onClick={() => openLiveView(cam)}
+                >
+                  View live
+                </button>
+                <LedStatus status={cam.enrollment_status} />
+              </div>
             </div>
-          </div>
           );
         })}
       </Ledger>
@@ -399,10 +408,7 @@ export default function WarehouseDetailClient() {
                       !usedElsewhere.has(skuForCategory(c)),
                   );
                   // Keep current selection visible even if not in warehouse list.
-                  if (
-                    selectedCategory &&
-                    !options.includes(selectedCategory)
-                  ) {
+                  if (selectedCategory && !options.includes(selectedCategory)) {
                     options.unshift(selectedCategory);
                   }
 
@@ -440,7 +446,11 @@ export default function WarehouseDetailClient() {
                             setStockQuantity(index, e.target.value)
                           }
                           onKeyDown={(e) => {
-                            if (e.key === "-" || e.key === "e" || e.key === "+") {
+                            if (
+                              e.key === "-" ||
+                              e.key === "e" ||
+                              e.key === "+"
+                            ) {
                               e.preventDefault();
                             }
                           }}
