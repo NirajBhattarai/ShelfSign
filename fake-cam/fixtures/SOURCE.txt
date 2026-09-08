@@ -1,0 +1,2 @@
+youtube_warehouse.mp4 — https://www.youtube.com/watch?v=0piTQw83NBE
+frames/ — ~5fps stills (1280x720) for looping fake-cam ISAPI JPEG stream
