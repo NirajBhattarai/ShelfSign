@@ -213,7 +213,6 @@ async function seedWarehouse(demo: DemoWarehouse, supplierId: string) {
     supplier_id: supplierId,
     camera_account: catalogAccount,
     nonce,
-    image_cid: null,
     image_hash: imageHash,
     model: "yolov8n-stock-v1",
     model_hash: modelHash,
@@ -225,7 +224,10 @@ async function seedWarehouse(demo: DemoWarehouse, supplierId: string) {
   if (attErr) throw attErr;
 
   // Declared warehouse stock matches category SKUs (integer totals).
-  await supabase.from("warehouse_stock").delete().eq("warehouse_id", warehouseId);
+  await supabase
+    .from("warehouse_stock")
+    .delete()
+    .eq("warehouse_id", warehouseId);
   if (demo.items.length) {
     const { error: stockErr } = await supabase.from("warehouse_stock").insert(
       demo.items.map((i) => ({
@@ -249,11 +251,9 @@ async function main() {
 
   // Ensure canonical categories exist (idempotent with migration 0007).
   await supabase.from("categories").delete().neq("name", "");
-  await supabase.from("categories").insert([
-    { name: "Chair" },
-    { name: "Monitor" },
-    { name: "Table" },
-  ]);
+  await supabase
+    .from("categories")
+    .insert([{ name: "Chair" }, { name: "Monitor" }, { name: "Table" }]);
 
   for (const demo of DEMO_WAREHOUSES) {
     const supplierId = await findUserIdByEmail(demo.supplierEmail);
@@ -264,7 +264,9 @@ async function main() {
     await seedWarehouse(demo, supplierId);
   }
 
-  console.log(`\nDone. ${DEMO_WAREHOUSES.length} warehouses · Chair/Monitor/Table only`);
+  console.log(
+    `\nDone. ${DEMO_WAREHOUSES.length} warehouses · Chair/Monitor/Table only`,
+  );
 }
 
 main().catch((err) => {

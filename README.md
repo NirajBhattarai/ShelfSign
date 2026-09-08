@@ -18,7 +18,7 @@ Buyers cannot reliably see real supplier inventory. Spreadsheets and chat update
 4. Capture a live frame bound to that nonce; verify it matches the enrolled CMOS fingerprint.
 5. Run vision (YOLO / PyTorch) → stock counts.
 6. Publish a **signed stock attestation** (image hash + CMOS account + nonce + counts).
-7. Buyers browse attested stock and place buy orders. Pay-per-query access (**x402**) and optional USDC bonding are planned.
+7. Buyers browse attested stock and place buy orders. Pay-per-query access is live via **Hedera x402**; optional **USDC bond + slash** (Arc) is planned.
 
 **Tagline:** Live stock from _this_ camera, _right now_ — silicon identity + nonce, not a spreadsheet.
 
@@ -77,9 +77,9 @@ Attestation: stock + imageHash + cameraAccount + nonce + modelHash
        ↓
 Sign (camera-bound account / supplier key)
        ↓
-Image → IPFS    |    Attestation → Hedera HCS / Arc (planned)
+Attestation → Hedera HCS (live) / Arc bond (planned)
        ↓
-Buyer browses attested stock → places buy order
+Buyer browses attested stock → x402 unlock → places buy order
 ```
 
 ### Anti-fake layers
@@ -88,9 +88,10 @@ Buyer browses attested stock → places buy order
 | ----------------------------------- | ---------------------------------------------------- |
 | CMOS impurity fingerprint → account | Phone uploads, swapped cameras, generic stock photos |
 | Attestable nonce                    | Replay of old “full shelf” videos                    |
-| Image hash on-chain                 | Editing the photo after the fact                     |
+| Image hash + HCS log                | Editing the photo after the fact; silent rewrite     |
 | Signature                           | Random third-party forgery                           |
 | Model hash                          | Silent detector swap                                 |
+| Fraud flag (`is_fake` in DB)        | Persist unverified camera after CMOS/sig fail        |
 | USDC bond + slash (planned)         | Cheap lying about staged aisles                      |
 
 A supplier can still stage the real aisle before the shot — bond + dispute covers that once shipping. Camera physics stops _remote_ faking and replay.
@@ -146,11 +147,13 @@ Checkboxes mark what is done in the repo today. Unchecked items are still open.
 - [x] Buy orders linked to attestation (optional)
 - [x] Vision service — YOLO stock detection (FastAPI + Ultralytics/PyTorch)
 - [x] CMOS fingerprint endpoints (PUF enroll/match/challenge; SiliconWitness path)
+- [x] Hedera HCS attestation publishing (`npm run setup:hcs`)
+- [x] x402 paywalled stock queries (Blocky402 + Hedera exact scheme)
+- [x] Camera fraud / unverified flag + concurrent attest lock (`0008` / `0009`)
+- [x] `fake-cam/` ISAPI stub for controlled CMOS-reject demos
 - [ ] Classical PRNU residual correlation (current path is pixel-stability PUF)
-- [ ] Hedera HCS attestation publishing
 - [ ] Arc USDC bond / slash
-- [ ] x402 paywalled stock queries
-- [ ] IPFS image publishing
+- [ ] The Graph indexing for bond/slash events
 
 ### Buyer routes
 
@@ -186,7 +189,6 @@ Checkboxes mark what is done in the repo today. Unchecked items are still open.
   "nonce": "0xdeadbeef…",
   "nonceIssuedAt": 1788600000,
   "capturedAt": 1788600005,
-  "imageCid": "ipfs://…",
   "imageHash": "0x…",
   "model": "yolov8n-stock-v1",
   "modelHash": "0x…",
@@ -201,8 +203,9 @@ Verification checklist before accepting stock as live:
 1. `nonce` is one we issued and not expired / not reused
 2. `cmosFingerprintHash` matches enrolled camera account
 3. Frame is bound to `nonce` (watermark or `HMAC(frame, nonce)`)
-4. `imageHash` matches published image
+4. `imageHash` matches the captured frame
 5. Signature validates under camera / supplier account
+6. Attestation is published to Hedera HCS (topic + sequence)
 
 ---
 
@@ -213,7 +216,7 @@ Prefer a **local warehouse agent**:
 - Runs on their LAN next to the camera
 - Holds camera credentials locally
 - Receives nonce challenges from ShelfSign
-- Returns only attestations (+ optional image CID)
+- Returns only attestations (+ image hash; frame stays on LAN unless streamed)
 
 Buyers never get RTSP. The cloud never needs the warehouse’s camera admin password.
 
@@ -222,10 +225,11 @@ Buyers never get RTSP. The cloud never needs the warehouse’s camera admin pass
 ## Stack
 
 - **Frontend:** Next.js (App Router), TypeScript, Supabase Auth
-- **Backend:** Node / Express (TypeScript) — nonce, attestations, cameras, warehouses, orders
-- **Vision:** Python FastAPI — YOLO stock detection + simplified CMOS / PRNU fingerprinting
+- **Backend:** Node / Express (TypeScript) — nonce, attestations, cameras, warehouses, orders, HCS publish, x402
+- **Vision:** Python FastAPI — YOLO stock detection + CMOS / PUF (SiliconWitness-style) fingerprinting
 - **Data:** Supabase (Postgres + RLS)
-- **Planned:** Hedera HCS, Arc USDC bond, x402 paywalled stock queries, IPFS
+- **Chain (live):** Hedera testnet — HCS attestation log + x402 pay-per-query (HBAR via Blocky402)
+- **Planned:** Arc USDC bond / slash, HTS USDC settle for x402
 
 ---
 
@@ -234,8 +238,9 @@ Buyers never get RTSP. The cloud never needs the warehouse’s camera admin pass
 ```
 ShelfSign/
 ├── frontend/            Next.js — auth, supplier & buyer dashboards
-├── backend/             Express — nonce, attestation verify, cameras / warehouses / orders API
-├── vision-service/      FastAPI — YOLO + CMOS/PRNU fingerprinting
+├── backend/             Express — nonce, attest verify, HCS, x402, cameras / warehouses / orders
+├── vision-service/      FastAPI — YOLO + CMOS/PUF enroll & challenge
+├── fake-cam/            Demo-only Hikvision ISAPI stub (CMOS-reject demos)
 ├── supabase/migrations/ SQL schema + RLS
 └── .claude/agents/      Scoped subagents per stack area
 ```
@@ -245,15 +250,16 @@ ShelfSign/
 ## Getting started
 
 ```bash
-# 1. Create a Supabase project, then run supabase/migrations/*.sql
-#    against it (SQL editor, or `supabase db push`).
+# 1. Local Supabase (or a hosted project) + apply migrations
+supabase start
+supabase db push --local   # or run supabase/migrations/*.sql in the SQL editor
 
 # frontend
 cd frontend && cp .env.example .env.local  # fill NEXT_PUBLIC_SUPABASE_* + NEXT_PUBLIC_API_URL
 npm install && npm run dev
 
 # backend
-cd backend && cp .env.example .env  # fill SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY
+cd backend && cp .env.example .env  # fill SUPABASE_* ; then fund Hedera + npm run setup:hcs
 npm install && npm run dev
 
 # vision-service
@@ -261,6 +267,15 @@ cd vision-service && cp .env.example .env
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 uvicorn src.main:app --reload --port 8000
+```
+
+Hedera (required for HCS publish + x402 settle):
+
+```bash
+cd backend
+# Fund OPERATOR + AGENT EVM addresses at https://faucet.hedera.com
+# Or set HEDERA_PAT and run:
+npm run setup:hcs
 ```
 
 `frontend/` and `backend/` are npm workspaces off the root `package.json` — `npm install` from the repo root installs both.
@@ -308,14 +323,21 @@ Buyer stock catalog loads from `GET /warehouses/catalog` (search, filters, sort,
 ## Demo script
 
 1. Enroll camera → show CMOS account id
-2. Issue nonce challenge
-3. Live aisle frame (nonce visible or bound)
+2. Issue nonce challenge (OSD + IR / night aligned with enroll)
+3. Live aisle frame bound to nonce
 4. CMOS match ✓ + YOLO counts
-5. Publish attestation
-6. Buyer browses stock and places an order
+5. Publish attestation → **Hedera HCS** (HashScan topic link)
+6. Buyer unlocks stock via **x402** and places an order
 7. Supplier confirms / fulfills the order
 8. Replay old frame with stale nonce → **reject**
-9. Different camera / phone photo → **CMOS fail**
+9. Point enrolled cam at `fake-cam` stub (or phone photo) → **CMOS fail** + unverified flag
+
+Two-warehouse seed (real Hikvision + fake-cam):
+
+```bash
+cd fake-cam && python stdlib_server.py   # :8788, admin / FakeCamDemo1!
+cd backend && npm run seed:two-warehouses
+```
 
 ---
 

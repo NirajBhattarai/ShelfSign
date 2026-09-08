@@ -7,7 +7,6 @@ export const attestationRouter = Router();
 interface AttestationBody {
   cameraId: string;
   nonce: string;
-  imageCid?: string;
   imageHash: string;
   claimedImageHash?: string;
   model: string;
@@ -72,7 +71,6 @@ attestationRouter.post("/", async (req, res) => {
       supplier_id: camera.supplier_id,
       camera_account: camera.cmos_account,
       nonce,
-      image_cid: body.imageCid ?? null,
       image_hash: imageHash,
       model,
       model_hash: modelHash,

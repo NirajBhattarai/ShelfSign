@@ -31,7 +31,7 @@ supplierRouter.get("/:id/stock", async (req, res) => {
   const { data, error } = await supabase
     .from("attestations")
     .select(
-      "id, camera_account, nonce, image_cid, image_hash, model, model_hash, items, captured_at",
+      "id, camera_account, nonce, image_hash, model, model_hash, items, captured_at",
     )
     .eq("supplier_id", req.params.id)
     .order("captured_at", { ascending: false });

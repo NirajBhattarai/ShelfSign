@@ -75,7 +75,6 @@ async function releaseAttestLock(cameraId: string): Promise<void> {
     .eq("id", cameraId);
 }
 
-
 export interface FullAttestResult {
   attestation: Record<string, unknown>;
   hcs?: HcsPublishResult | null;
@@ -460,7 +459,6 @@ async function runFullAttestationLocked(
       supplier_id: enrolledCamera.supplier_id,
       camera_account: enrolledCamera.cmos_account,
       nonce,
-      image_cid: null,
       image_hash: imageHash,
       model,
       model_hash: modelHash,
@@ -578,7 +576,9 @@ export function attestErrorPayload(err: unknown): {
         reasons: e.reasons,
         steps: e.steps,
         isFake:
-          "isFake" in e ? Boolean((e as { isFake?: boolean }).isFake) : undefined,
+          "isFake" in e
+            ? Boolean((e as { isFake?: boolean }).isFake)
+            : undefined,
       },
     };
   }

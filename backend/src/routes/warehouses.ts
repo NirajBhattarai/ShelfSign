@@ -479,10 +479,7 @@ warehouseRouter.get("/:id/stock", async (req: AuthedRequest, res) => {
     return;
   }
 
-  if (
-    req.user!.role === "supplier" &&
-    warehouse.supplier_id !== req.user!.id
-  ) {
+  if (req.user!.role === "supplier" && warehouse.supplier_id !== req.user!.id) {
     res.status(403).json({ error: "forbidden" });
     return;
   }
@@ -557,7 +554,10 @@ warehouseRouter.put("/:id/stock", async (req: AuthedRequest, res) => {
     });
   }
 
-  await supabase.from("warehouse_stock").delete().eq("warehouse_id", warehouseId);
+  await supabase
+    .from("warehouse_stock")
+    .delete()
+    .eq("warehouse_id", warehouseId);
   if (cleaned.length > 0) {
     const { error: insertError } = await supabase
       .from("warehouse_stock")
@@ -628,7 +628,6 @@ warehouseRouter.get("/:id/stock/:sku", async (req: AuthedRequest, res) => {
     camera_id: string;
     camera_account: string | null;
     nonce: string;
-    image_cid: string | null;
     image_hash: string;
     model: string | null;
     model_hash: string | null;
@@ -643,7 +642,7 @@ warehouseRouter.get("/:id/stock/:sku", async (req: AuthedRequest, res) => {
     const { data: attestations } = await supabase
       .from("attestations")
       .select(
-        "id, camera_id, camera_account, nonce, image_cid, image_hash, model, model_hash, items, captured_at, cmos_score, detection_count",
+        "id, camera_id, camera_account, nonce, image_hash, model, model_hash, items, captured_at, cmos_score, detection_count",
       )
       .in("camera_id", cameraIds)
       .order("captured_at", { ascending: false })
@@ -707,7 +706,6 @@ warehouseRouter.get("/:id/stock/:sku", async (req: AuthedRequest, res) => {
       camera_account: matchedAtt?.camera_account ?? null,
       camera_label: camera?.label ?? null,
       nonce: matchedAtt?.nonce ?? null,
-      image_cid: matchedAtt?.image_cid ?? null,
       image_hash: matchedAtt?.image_hash ?? null,
       model: matchedAtt?.model ?? null,
       model_hash: matchedAtt?.model_hash ?? null,
@@ -721,9 +719,7 @@ warehouseRouter.get("/:id/stock/:sku", async (req: AuthedRequest, res) => {
       ? {
           id: camera.id,
           label: camera.label,
-          isFake: Boolean(
-            (camera as { is_fake?: boolean }).is_fake,
-          ),
+          isFake: Boolean((camera as { is_fake?: boolean }).is_fake),
           fraudDetectedAt:
             (camera as { fraud_detected_at?: string | null })
               .fraud_detected_at ?? null,
