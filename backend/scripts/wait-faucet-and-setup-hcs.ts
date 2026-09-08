@@ -267,7 +267,7 @@ async function main() {
             }
           : {}),
         X402_PAY_TO: operatorId,
-        X402_ASSET: "0.0.0",
+        X402_ASSET: process.env.X402_ASSET?.trim() || "0.0.0",
         X402_FACILITATOR_URL: "https://api.testnet.blocky402.com",
         X402_PRICE_PER_QUERY_USDC: "0.01",
       },

@@ -6,6 +6,7 @@ import { useHederaWallet } from "@/lib/HederaWalletContext";
 import { ConnectWalletDialog } from "@/components/ConnectWalletDialog";
 import {
   formatPaymentAmount,
+  paymentAssetLabel,
   type PaymentRequirements,
 } from "@/lib/x402Client";
 import type { X402Challenge } from "@/lib/api";
@@ -68,9 +69,7 @@ export function PayUnlockDialog({
         <div>
           <div className="detail-label">Asset</div>
           <div className="mono">
-            {requirements?.asset === "0.0.0"
-              ? "HBAR"
-              : (requirements?.asset ?? "—")}
+            {paymentAssetLabel(requirements?.asset)}
           </div>
         </div>
       </div>
@@ -93,8 +92,8 @@ export function PayUnlockDialog({
 
       {!wallet && (
         <div className="catalog-banner" style={{ marginTop: 14 }}>
-          Connect HashPack (or import a funded testnet account) to sign the HBAR
-          payment.
+          Connect HashPack (or import a funded testnet account) to sign the
+          USDC payment.
         </div>
       )}
 

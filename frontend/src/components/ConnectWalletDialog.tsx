@@ -41,7 +41,7 @@ export function ConnectWalletDialog({ onClose }: { onClose: () => void }) {
     <Overlay onClose={connecting ? () => undefined : onClose} wide>
       <div className="overlay-title">Connect Hedera wallet</div>
       <div className="overlay-sub">
-        Pay for attested stock with real HBAR on Hedera testnet (x402). Connect
+        Pay for attested stock with testnet USDC on Hedera (x402). Connect
         HashPack or import a funded account ID + key.
       </div>
 

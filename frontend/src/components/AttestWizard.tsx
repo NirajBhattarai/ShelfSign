@@ -212,7 +212,7 @@ export function AttestWizard({
           >
             <strong>2. Pay x402 + SiliconWitness challenge</strong>
             <p>
-              Settle HBAR via x402, then drive OSD nonce + IR, regenerate the
+              Settle USDC via x402, then drive OSD nonce + IR, regenerate the
               PUF key, and verify silicon identity.
             </p>
             {result?.steps.cmosMatch && (
