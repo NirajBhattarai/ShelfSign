@@ -40,6 +40,7 @@ export interface Attestation {
   captured_at: string;
   items: StockItem[];
   cmos_score?: number | null;
+  prnu_score?: number | null;
   detection_count?: number | null;
 }
 

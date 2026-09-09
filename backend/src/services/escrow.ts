@@ -1,10 +1,9 @@
 /**
- * Hedera HTS USDC camera escrow vault.
+ * Hedera HBAR camera escrow vault.
  *
- * Creates / uses a dedicated escrow account (operator-keyed) that holds USDC
- * locked when a supplier attaches+enrolls a camera on a warehouse. This is the
- * Hedera-native "escrow contract" for HTS tokens (no Solidity required for
- * fungible USDC custody).
+ * Creates / uses a dedicated escrow account (operator-keyed) that holds HBAR
+ * locked when a supplier attaches+enrolls a camera on a warehouse. Lab default
+ * is 10 ℏ — easy to fund from the Hedera testnet faucet.
  */
 import {
   AccountCreateTransaction,
@@ -13,12 +12,13 @@ import {
   Hbar,
   PrivateKey,
   Status,
-  TokenAssociateTransaction,
   TokenId,
   TransferTransaction,
 } from "@hashgraph/sdk";
 import { publishCameraEscrowToHcs, hcsConfigured } from "./chain.js";
 import { supabase } from "./supabase.js";
+
+export const HBAR_TOKEN_ID = "0.0.0";
 
 export interface EscrowLockResult {
   escrowAccountId: string;
@@ -55,20 +55,35 @@ function operatorClient(): Client {
   return client;
 }
 
-/** HTS USDC (or whatever X402_ASSET is). Must not be HBAR 0.0.0. */
+/** Native HBAR (`0.0.0`). ESCROW_TOKEN_ID may override for rare non-HBAR labs. */
 export function escrowTokenId(): string {
-  const asset = (process.env.ESCROW_TOKEN_ID || process.env.X402_ASSET || "")
-    .trim();
-  if (!asset || asset === "0.0.0") {
-    throw new Error(
-      "Set ESCROW_TOKEN_ID or X402_ASSET to an HTS USDC token id (not 0.0.0).",
-    );
-  }
-  return asset;
+  const asset = (process.env.ESCROW_TOKEN_ID || HBAR_TOKEN_ID).trim();
+  return asset || HBAR_TOKEN_ID;
 }
 
-/** Smallest units (6 decimals). Default 10.00 USDC camera bond. */
+export function isHbarEscrow(tokenId = escrowTokenId()): boolean {
+  return tokenId === HBAR_TOKEN_ID;
+}
+
+/**
+ * Smallest units for the bond.
+ * HBAR → tinybars (1 ℏ = 100_000_000). Default 10 ℏ.
+ * Legacy HTS (if ESCROW_TOKEN_ID is set to a token) → 6-decimal units via
+ * ESCROW_AMOUNT_USDC for backwards compatibility only.
+ */
 export function escrowAmountUnits(): number {
+  if (isHbarEscrow()) {
+    const hbar = Number(
+      process.env.ESCROW_AMOUNT_HBAR ??
+        process.env.ESCROW_AMOUNT_USDC ?? // migrate old env name if still present
+        "10",
+    );
+    if (!Number.isFinite(hbar) || hbar <= 0) {
+      throw new Error("ESCROW_AMOUNT_HBAR must be a positive number");
+    }
+    return Math.round(hbar * 100_000_000);
+  }
+
   const usdc = Number(process.env.ESCROW_AMOUNT_USDC ?? "10");
   if (!Number.isFinite(usdc) || usdc <= 0) {
     throw new Error("ESCROW_AMOUNT_USDC must be a positive number");
@@ -77,21 +92,19 @@ export function escrowAmountUnits(): number {
 }
 
 export function escrowConfigured(): boolean {
-  try {
-    return Boolean(
-      process.env.HEDERA_OPERATOR_ID?.trim() &&
-        process.env.HEDERA_OPERATOR_KEY?.trim() &&
-        process.env.HEDERA_ESCROW_ACCOUNT_ID?.trim() &&
-        escrowTokenId(),
-    );
-  } catch {
-    return false;
-  }
+  return Boolean(
+    process.env.HEDERA_OPERATOR_ID?.trim() &&
+    process.env.HEDERA_OPERATOR_KEY?.trim() &&
+    process.env.HEDERA_ESCROW_ACCOUNT_ID?.trim(),
+  );
 }
 
 export function getEscrowAccountId(): string {
   const id = process.env.HEDERA_ESCROW_ACCOUNT_ID?.trim();
-  if (!id) throw new Error("HEDERA_ESCROW_ACCOUNT_ID not set — run npm run setup:escrow");
+  if (!id)
+    throw new Error(
+      "HEDERA_ESCROW_ACCOUNT_ID not set — run npm run setup:escrow",
+    );
   return id;
 }
 
@@ -112,7 +125,7 @@ function funder(): { id: AccountId; key: PrivateKey } {
 }
 
 /**
- * Create the escrow vault account, associate USDC, return account id.
+ * Create the escrow vault account. HBAR needs no token associate.
  * Idempotent if HEDERA_ESCROW_ACCOUNT_ID already set (returns it).
  */
 export async function createEscrowVault(): Promise<{
@@ -133,26 +146,15 @@ export async function createEscrowVault(): Promise<{
     const create = await new AccountCreateTransaction()
       .setKeyWithoutAlias(operatorKey.publicKey)
       .setInitialBalance(new Hbar(0.5))
-      .setAccountMemo("ShelfSign camera USDC escrow vault")
+      .setAccountMemo("ShelfSign camera HBAR escrow vault")
       .execute(client);
     const createRx = await create.getReceipt(client);
     if (createRx.status !== Status.Success || !createRx.accountId) {
       throw new Error(`escrow account create failed: ${createRx.status}`);
     }
-    const escrowId = createRx.accountId;
-
-    const assoc = await new TokenAssociateTransaction()
-      .setAccountId(escrowId)
-      .setTokenIds([TokenId.fromString(tokenId)])
-      .freezeWith(client)
-      .sign(operatorKey);
-    const assocRx = await (await assoc.execute(client)).getReceipt(client);
-    if (assocRx.status !== Status.Success) {
-      throw new Error(`escrow token associate failed: ${assocRx.status}`);
-    }
 
     return {
-      escrowAccountId: escrowId.toString(),
+      escrowAccountId: createRx.accountId.toString(),
       tokenId,
       created: true,
     };
@@ -162,7 +164,7 @@ export async function createEscrowVault(): Promise<{
 }
 
 /**
- * Lock USDC into the escrow vault for a newly attached/enrolled camera.
+ * Lock HBAR (or legacy HTS) into the escrow vault for a newly enrolled camera.
  */
 export async function lockCameraEscrow(input: {
   cameraId: string;
@@ -182,17 +184,28 @@ export async function lockCameraEscrow(input: {
 
   try {
     const memo = `ShelfSign camera escrow ${input.cameraId.slice(0, 8)}`;
-    const tx = await new TransferTransaction()
-      .addTokenTransfer(TokenId.fromString(tokenId), funderId, -amount)
-      .addTokenTransfer(
-        TokenId.fromString(tokenId),
-        AccountId.fromString(escrowAccountId),
-        amount,
-      )
-      .setTransactionMemo(memo.slice(0, 100))
-      .freezeWith(client)
-      .sign(funderKey);
+    const txBuilder = new TransferTransaction().setTransactionMemo(
+      memo.slice(0, 100),
+    );
 
+    if (isHbarEscrow(tokenId)) {
+      txBuilder
+        .addHbarTransfer(funderId, Hbar.fromTinybars(-amount))
+        .addHbarTransfer(
+          AccountId.fromString(escrowAccountId),
+          Hbar.fromTinybars(amount),
+        );
+    } else {
+      txBuilder
+        .addTokenTransfer(TokenId.fromString(tokenId), funderId, -amount)
+        .addTokenTransfer(
+          TokenId.fromString(tokenId),
+          AccountId.fromString(escrowAccountId),
+          amount,
+        );
+    }
+
+    const tx = await txBuilder.freezeWith(client).sign(funderKey);
     const resp = await tx.execute(client);
     const rx = await resp.getReceipt(client);
     if (rx.status !== Status.Success) {
@@ -216,7 +229,7 @@ export async function lockCameraEscrow(input: {
           transactionId,
         });
       } catch {
-        // HCS log is best-effort; lock already settled on HTS.
+        // HCS log is best-effort; lock already settled on-chain.
       }
     }
 
@@ -234,8 +247,7 @@ export async function lockCameraEscrow(input: {
 
 /**
  * Slash a camera's locked bond: transfer it out of the escrow vault to the
- * platform operator account. The supplier does not get it back — that's the
- * point of a bond. Called when a CRE fraud review returns SLASH.
+ * platform operator account. Called when a CRE fraud review returns SLASH.
  */
 export async function forfeitCameraEscrow(input: {
   cameraId: string;
@@ -256,21 +268,35 @@ export async function forfeitCameraEscrow(input: {
 
   try {
     const memo = `ShelfSign camera escrow SLASH ${input.cameraId.slice(0, 8)}`;
-    const tx = await new TransferTransaction()
-      .addTokenTransfer(
-        TokenId.fromString(input.tokenId),
-        AccountId.fromString(escrowAccountId),
-        -input.amount,
-      )
-      .addTokenTransfer(
-        TokenId.fromString(input.tokenId),
-        AccountId.fromString(treasuryId),
-        input.amount,
-      )
-      .setTransactionMemo(memo.slice(0, 100))
-      .freezeWith(client)
-      .sign(operatorKey);
+    const txBuilder = new TransferTransaction().setTransactionMemo(
+      memo.slice(0, 100),
+    );
 
+    if (isHbarEscrow(input.tokenId)) {
+      txBuilder
+        .addHbarTransfer(
+          AccountId.fromString(escrowAccountId),
+          Hbar.fromTinybars(-input.amount),
+        )
+        .addHbarTransfer(
+          AccountId.fromString(treasuryId),
+          Hbar.fromTinybars(input.amount),
+        );
+    } else {
+      txBuilder
+        .addTokenTransfer(
+          TokenId.fromString(input.tokenId),
+          AccountId.fromString(escrowAccountId),
+          -input.amount,
+        )
+        .addTokenTransfer(
+          TokenId.fromString(input.tokenId),
+          AccountId.fromString(treasuryId),
+          input.amount,
+        );
+    }
+
+    const tx = await txBuilder.freezeWith(client).sign(operatorKey);
     const resp = await tx.execute(client);
     const rx = await resp.getReceipt(client);
     if (rx.status !== Status.Success) {
@@ -294,7 +320,7 @@ export async function forfeitCameraEscrow(input: {
           transactionId,
         });
       } catch {
-        // HCS log is best-effort; slash already settled on HTS.
+        // HCS log is best-effort; slash already settled on-chain.
       }
     }
 

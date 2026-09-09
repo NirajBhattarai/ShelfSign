@@ -358,9 +358,9 @@ export default function WarehouseDetailClient() {
                 ) : null}
                 {cam.escrow_status === "locked" && (
                   <div className="row-sub" style={{ marginTop: 4 }}>
-                    USDC bond locked
+                    HBAR bond locked
                     {cam.escrow_amount != null
-                      ? ` · ${(cam.escrow_amount / 1_000_000).toFixed(2)} USDC`
+                      ? ` · ${(cam.escrow_amount / 100_000_000).toFixed(2)} ℏ`
                       : ""}
                     {cam.escrow_hashscan_url ? (
                       <>
@@ -378,7 +378,7 @@ export default function WarehouseDetailClient() {
                 )}
                 {cam.escrow_status === "forfeited" && (
                   <div className="row-sub" style={{ marginTop: 4 }}>
-                    USDC bond slashed for fraud
+                    HBAR bond slashed for fraud
                     {cam.escrow_forfeited_at
                       ? ` · ${new Date(cam.escrow_forfeited_at).toLocaleString()}`
                       : ""}
@@ -397,13 +397,12 @@ export default function WarehouseDetailClient() {
                     . Attestation is paused until the bond is restaked.
                   </div>
                 )}
-                {cam.enrollment_status === "enrolled" &&
-                  !cam.escrow_status && (
-                    <div className="row-sub" style={{ marginTop: 4 }}>
-                      No USDC bond on file for this camera. Attestation is
-                      paused until 10 USDC is staked.
-                    </div>
-                  )}
+                {cam.enrollment_status === "enrolled" && !cam.escrow_status && (
+                  <div className="row-sub" style={{ marginTop: 4 }}>
+                    No HBAR bond on file for this camera. Attestation is paused
+                    until 10 ℏ is staked.
+                  </div>
+                )}
               </div>
               <div
                 style={{
@@ -424,8 +423,8 @@ export default function WarehouseDetailClient() {
                       {restakingId === cam.id
                         ? "Staking…"
                         : cam.escrow_status === "forfeited"
-                          ? "Restake 10 USDC"
-                          : "Stake 10 USDC"}
+                          ? "Restake 10 HBAR"
+                          : "Stake 10 HBAR"}
                     </button>
                   )}
                 {cam.enrollment_status === "enrolled" && (
@@ -437,7 +436,7 @@ export default function WarehouseDetailClient() {
                       cam.escrow_status === "forfeited"
                         ? "Bond was slashed — restake before attesting"
                         : cam.escrow_status !== "locked"
-                          ? "No USDC bond on file — stake before attesting"
+                          ? "No HBAR bond on file — stake before attesting"
                           : attestBusy
                             ? "Another attestation is running on this camera"
                             : undefined

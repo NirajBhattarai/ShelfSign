@@ -15,6 +15,9 @@ interface AttestationBody {
   capturedAt: string;
   cmosFingerprintMatch: boolean;
   signatureValid: boolean;
+  /** Optional — this generic ingest route predates PRNU; callers that don't
+   * supply it are treated as having no PRNU baseline (not gated). */
+  prnuFingerprintMatch?: boolean;
 }
 
 // Called by a warehouse agent after it captures a nonce-bound frame,
@@ -44,6 +47,7 @@ attestationRouter.post("/", async (req, res) => {
     claimedImageHash: body.claimedImageHash ?? imageHash,
     cmosFingerprintMatch: !!body.cmosFingerprintMatch,
     signatureValid: !!body.signatureValid,
+    prnuFingerprintMatch: body.prnuFingerprintMatch ?? true,
   });
 
   if (!result.ok) {

@@ -3,6 +3,8 @@ import os
 from pathlib import Path
 from typing import Optional
 
+import numpy as np
+
 from .challenge_pipeline import respond_to_challenge
 from .enroll_pipeline import (
     EnrollmentRecord,
@@ -21,16 +23,27 @@ def _record_path(camera_id: str) -> Path:
     return ENROLLMENTS_DIR / f"{camera_id}.json"
 
 
+def _prnu_path(camera_id: str) -> Path:
+    """Sidecar PRNU reference pattern -- see EnrollmentRecord.prnu_fingerprint."""
+    return ENROLLMENTS_DIR / f"{camera_id}.prnu.npy"
+
+
 def _load_record(camera_id: str) -> Optional[EnrollmentRecord]:
     path = _record_path(camera_id)
     if not path.exists():
         return None
-    return EnrollmentRecord.from_json(json.loads(path.read_text()))
+    record = EnrollmentRecord.from_json(json.loads(path.read_text()))
+    prnu_path = _prnu_path(camera_id)
+    if prnu_path.exists():
+        record.prnu_fingerprint = np.load(prnu_path)
+    return record
 
 
 def _save_record(camera_id: str, record: EnrollmentRecord) -> None:
     ENROLLMENTS_DIR.mkdir(parents=True, exist_ok=True)
     _record_path(camera_id).write_text(json.dumps(record.to_json(), indent=2))
+    if record.prnu_fingerprint is not None:
+        np.save(_prnu_path(camera_id), record.prnu_fingerprint)
 
 
 def has_enrollment(camera_id: str) -> bool:

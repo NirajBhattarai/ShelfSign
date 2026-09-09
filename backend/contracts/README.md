@@ -1,22 +1,22 @@
-# ShelfSign Hedera camera USDC escrow
+# ShelfSign Hedera camera HBAR escrow
 
 When a supplier **attaches and enrolls a camera** on a warehouse, ShelfSign
-locks a **10 USDC fraud bond** (HTS USDC) into a dedicated Hedera **escrow
-vault account** (operator-keyed) as proof the camera is real. That vault is
-the on-chain custody “contract” for camera bonds.
+locks a **10 HBAR fraud bond** into a dedicated Hedera **escrow vault
+account** (operator-keyed) as proof the camera is economically backed. HBAR
+is easy to fund from the [Hedera testnet faucet](https://faucet.hedera.com).
 
 **This is mandatory, not optional.** `POST /cameras` refuses to enroll a
 camera at all if escrow isn't configured (503 `escrow_not_configured`), and
 if the CMOS/PUF enroll succeeds but the escrow lock transfer itself fails,
 the camera is marked `enrollment_status = 'failed'` (502
 `escrow_lock_failed`) rather than being enrolled without a bond. There is no
-enrolled camera in this system without an active USDC lock behind it.
+enrolled camera in this system without an active HBAR lock behind it.
 
 ## Slash + restake lifecycle
 
-1. **Lock** — camera enrolls → `lockCameraEscrow()` moves `ESCROW_AMOUNT_USDC`
-   (default 10) from the funder into the vault. `escrow_status = 'locked'`.
-   If this fails, enrollment fails with it (see above) — never optional.
+1. **Lock** — camera enrolls → `lockCameraEscrow()` moves `ESCROW_AMOUNT_HBAR`
+   (default 10 ℏ) from the funder into the vault. `escrow_status = 'locked'`.
+   If this fails, enrollment fails with it — never optional.
 2. **Slash** — a Chainlink CRE fraud review returns `SLASH` for one of the
    camera's attestations (`POST /cre/internal/verdicts` or
    `/cre/reviews/:id/run-local`) → `slashCameraForFraud()` transfers the
@@ -24,10 +24,10 @@ enrolled camera in this system without an active USDC lock behind it.
    `cameras.is_fake = true`, and sets `escrow_status = 'forfeited'`. The
    supplier does not get this back.
 3. **Blocked** — while `escrow_status = 'forfeited'`, `runFullAttestation()`
-   refuses to run (402 `escrow_forfeited`) for both the supplier's own
+   refuses to run (402 `escrow_required`) for both the supplier's own
    `/cameras/:id/attest` and the buyer-paid `/warehouses/:id/count-live`.
 4. **Restake** — supplier calls `POST /cameras/:id/restake`, which locks a
-   fresh 10 USDC bond, sets `escrow_status = 'locked'`, and clears
+   fresh 10 HBAR bond, sets `escrow_status = 'locked'`, and clears
    `is_fake` / `fraud_detected_at`. Attestation resumes.
 
 The prior slash is preserved for audit in `escrow_forfeited_at` /
@@ -37,32 +37,31 @@ the slash history.
 
 ## Why an account vault (not Solidity)?
 
-x402 / ShelfSign USDC is an **HTS** token (`X402_ASSET` / `ESCROW_TOKEN_ID`).
-Native HTS custody is an associated Hedera account + `TransferTransaction`.
-That matches the rest of this repo (`@hashgraph/sdk`) and avoids a separate
-EVM ERC-20 wrapper for the same token.
+Native HBAR custody is a Hedera account + `TransferTransaction.addHbarTransfer`.
+That matches the rest of this repo (`@hashgraph/sdk`) and needs no HTS
+associate step for the vault.
 
 ## Setup
 
 ```bash
 cd backend
-# Requires HEDERA_OPERATOR_* and X402_ASSET (or ESCROW_TOKEN_ID) already set.
-# Funder defaults to HEDERA_AGENT_* (must hold USDC + be associated).
+# Requires HEDERA_OPERATOR_* already set.
+# Funder defaults to HEDERA_AGENT_* (must hold ≥10 ℏ per camera lock).
 npm run setup:escrow
 ```
 
 Writes:
 
 - `HEDERA_ESCROW_ACCOUNT_ID`
-- `ESCROW_TOKEN_ID`
-- `ESCROW_AMOUNT_USDC` (default `10`)
+- `ESCROW_TOKEN_ID=0.0.0`
+- `ESCROW_AMOUNT_HBAR` (default `10`)
 
 ## Lock path
 
 `POST /cameras` → CMOS enroll success → `lockCameraEscrow()`:
 
-1. Transfer `ESCROW_AMOUNT_USDC` from funder → escrow vault
-2. Persist `escrow_*` columns on `cameras`
+1. Transfer `ESCROW_AMOUNT_HBAR` (tinybars) from funder → escrow vault
+2. Persist `escrow_*` columns on `cameras` (`escrow_token_id = 0.0.0`)
 3. Best-effort HCS message `shelfsign.camera_escrow.v1` (`action: "lock"`)
 
 Restake after a slash (`POST /cameras/:id/restake`) runs the same
@@ -80,8 +79,8 @@ CRE verdict `SLASH` → `slashCameraForFraud(cameraId)`:
 
 ```bash
 HEDERA_ESCROW_ACCOUNT_ID=0.0.…
-ESCROW_TOKEN_ID=0.0.10419302   # defaults to X402_ASSET
-ESCROW_AMOUNT_USDC=10
+ESCROW_TOKEN_ID=0.0.0
+ESCROW_AMOUNT_HBAR=10
 ESCROW_FUNDER_ID=              # optional; default HEDERA_AGENT_ID
 ESCROW_FUNDER_KEY=
 ```

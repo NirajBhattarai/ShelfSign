@@ -17,6 +17,7 @@ export interface AttestationDetails {
   items: StockItem[];
   captured_at: string;
   cmos_score?: number | null;
+  prnu_score?: number | null;
   hcs_topic_id?: string | null;
   hcs_sequence_number?: number | null;
 }
@@ -33,6 +34,7 @@ export interface LiveCountResult {
   countedAt: string;
   nonce?: string;
   cmosScore?: number;
+  prnuScore?: number | null;
   attestationId?: string | null;
   steps?: {
     challenge?: {
@@ -40,6 +42,8 @@ export interface LiveCountResult {
       osdMatch?: boolean;
       osdDecoded?: string;
       correctedBitErrors?: number;
+      prnuScore?: number | null;
+      prnuAvailable?: boolean;
     };
     cmosMatch?: { match?: boolean; score?: number };
   };
@@ -155,6 +159,16 @@ export function ViewAttestationModal({
             </div>
           </div>
           <div className="attest-summary-cell">
+            <div className="detail-label">PRNU score</div>
+            <div className="attest-summary-value mono">
+              {liveCount?.prnuScore != null
+                ? Number(liveCount.prnuScore).toFixed(4)
+                : attestation.prnu_score != null
+                  ? Number(attestation.prnu_score).toFixed(4)
+                  : "—"}
+            </div>
+          </div>
+          <div className="attest-summary-cell">
             <div className="detail-label">Captured</div>
             <div className="attest-summary-value attest-summary-value--sm">
               {new Date(
@@ -235,7 +249,8 @@ export function ViewAttestationModal({
         <p className="row-sub attest-modal-hint">{countLiveHint}</p>
         {creVerdict && (
           <p className="row-sub">
-            Chainlink CRE verdict <span className="mono">{creVerdict.verdict}</span>
+            Chainlink CRE verdict{" "}
+            <span className="mono">{creVerdict.verdict}</span>
             {" · "}score {creVerdict.score}
             {" · "}
             <span className="mono">{creVerdict.reason_hash}</span>
@@ -262,6 +277,16 @@ export function ViewAttestationModal({
                   <DetailRow
                     label="CMOS / PUF score"
                     value={Number(liveCount.cmosScore).toFixed(3)}
+                  />
+                )}
+                {liveCount.steps?.challenge?.prnuAvailable && (
+                  <DetailRow
+                    label="PRNU correlation"
+                    value={
+                      liveCount.steps.challenge.prnuScore != null
+                        ? Number(liveCount.steps.challenge.prnuScore).toFixed(4)
+                        : "—"
+                    }
                   />
                 )}
                 {liveCount.steps?.challenge && (

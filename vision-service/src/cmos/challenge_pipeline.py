@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import time
 from typing import Optional
 
@@ -22,6 +23,7 @@ from .capture import capture_snapshot, mean_luminance, saturation_variance
 from .enroll_pipeline import EnrollmentRecord
 from .isapi_client import ISAPIClient
 from .isapi_controls import set_color, set_ir_brightness, set_ircut_mode, set_osd_text
+from .prnu import PRNU_MATCH_THRESHOLD, correlate as prnu_correlate, noise_residual
 from .puf_coords import bits_to_bytes, extract_bits
 from .puf_fuzzy_extractor import BCHParams, regenerate as fx_regenerate
 from .puf_keys import sign_and_zero
@@ -43,6 +45,16 @@ CHALLENGE_BIT_INTERVAL_S = 0.35
 _NIGHT_MODE_SAT_THRESHOLD = 5.0   # saturation variance below which we consider night mode confirmed
 _NIGHT_MODE_CONFIRM_POLL_S = 20.0  # max time to poll (matches enroll_pipeline's confirm_poll_s default)
 _NIGHT_MODE_CONFIRM_INTERVAL_S = 1.0
+
+# PRNU correlation is computed and returned on every challenge, but does NOT
+# gate `match` by default -- PRNU_MATCH_THRESHOLD is a literature-typical
+# starting point, not a value calibrated against this specific sensor's real
+# JPEG compression, so treating it as a hard fraud gate out of the box risks
+# false-positive fraud flags (and, downstream, wrongly slashing a real
+# camera's escrow bond) on genuine hardware. Set SHELFSIGN_ENFORCE_PRNU=1
+# once you've verified genuine-vs-impostor score separation on the actual
+# enrolled camera.
+ENFORCE_PRNU = os.environ.get("SHELFSIGN_ENFORCE_PRNU") in ("1", "true")
 
 
 def _confirm_night_mode(client: ISAPIClient, confirm_poll_s: float = _NIGHT_MODE_CONFIRM_POLL_S) -> None:
@@ -235,6 +247,21 @@ def respond_to_challenge(
         bits = (stacked.sum(axis=0) >= (CHALLENGE_BIT_SAMPLES // 2 + 1)).astype(np.uint8)
         cap = caps[-1]  # nonce/OSD + imageHash bound to final capture
 
+        # Classical PRNU sensor-noise correlation against the enrolled
+        # fingerprint (see prnu.py). Only available for cameras enrolled
+        # after this feature shipped -- record.prnu_fingerprint is None for
+        # older enrollments, in which case this is skipped rather than
+        # treated as a failure.
+        prnu_score: Optional[float] = None
+        prnu_available = record.prnu_fingerprint is not None
+        prnu_match = True
+        if prnu_available:
+            residual = noise_residual(cap.array)
+            prnu_score = prnu_correlate(
+                residual, record.prnu_fingerprint, exclude_box=OSD_CROP
+            )
+            prnu_match = prnu_score >= PRNU_MATCH_THRESHOLD
+
         mean_lum = mean_luminance(cap)
         sat_var = saturation_variance(cap)
         osd_decoded = ocr_osd_nonce(cap, expected=nonce)
@@ -280,9 +307,15 @@ def respond_to_challenge(
                 "osdDecoded": osd_decoded,
                 "osdSimilarity": round(osd_similarity, 3),
                 "correctedBitErrors": corrected_errors,
+                "prnuScore": round(prnu_score, 6) if prnu_score is not None else None,
+                "prnuAvailable": prnu_available,
             },
             "verdict": {
-                "claim": "clear" if osd_match and not regen_failed else "mismatch",
+                "claim": (
+                    "clear"
+                    if osd_match and not regen_failed and (prnu_match or not ENFORCE_PRNU)
+                    else "mismatch"
+                ),
                 "confidence": (
                     round(min(0.95, 0.5 + 0.45 * max(osd_similarity, 0.5)), 2)
                     if not regen_failed
@@ -319,8 +352,9 @@ def respond_to_challenge(
         image_hash = hashlib.sha256(cap.raw_bytes).hexdigest()
         frame_bytes = cap.raw_bytes
 
+    prnu_gate = prnu_match or not ENFORCE_PRNU
     return {
-        "match": bool(address_match and osd_match and signature),
+        "match": bool(address_match and osd_match and signature and prnu_gate),
         "score": 1.0 if address_match else 0.0,
         "correctedBitErrors": corrected_errors,
         "signature": signature,
@@ -330,6 +364,9 @@ def respond_to_challenge(
         "attestation": body,
         "osdMatch": osd_match,
         "osdDecoded": osd_decoded,
+        "prnuScore": prnu_score,
+        "prnuMatch": prnu_match,
+        "prnuAvailable": prnu_available,
         # Same JPEG used for PUF regen — backend runs YOLO on this frame so
         # stock counts and silicon identity share one live capture.
         "frameBytes": frame_bytes,

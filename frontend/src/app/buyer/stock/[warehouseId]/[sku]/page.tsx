@@ -2,7 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { apiGet, apiGetPaid, apiPost, apiPostPaid, type X402Challenge } from "@/lib/api";
+import {
+  apiGet,
+  apiGetPaid,
+  apiPost,
+  apiPostPaid,
+  type X402Challenge,
+} from "@/lib/api";
 import { signExactPaymentHeaderWithSigner } from "@/lib/x402Client";
 import { useHederaWallet } from "@/lib/HederaWalletContext";
 import { PayUnlockDialog } from "@/components/PayUnlockDialog";
@@ -30,6 +36,7 @@ interface StockDetailResponse {
     model?: string | null;
     items: StockRow["item"][];
     cmos_score?: number | null;
+    prnu_score?: number | null;
     detection_count?: number | null;
   };
   liveStreamUrl: string | null;
@@ -202,9 +209,7 @@ export default function StockDetailPage() {
       }>(`/cre/reviews/${attestationId}/run-local`);
       setCreVerdict(local.verdict);
     } catch (err) {
-      setCreError(
-        err instanceof Error ? err.message : "CRE review failed.",
-      );
+      setCreError(err instanceof Error ? err.message : "CRE review failed.");
     } finally {
       setCreBusy(false);
     }
@@ -435,6 +440,11 @@ export default function StockDetailPage() {
                 CMOS score {Number(attestation.cmos_score).toFixed(3)}
               </span>
             ) : null}
+            {attestation.prnu_score != null ? (
+              <span className="meta-chip">
+                PRNU score {Number(attestation.prnu_score).toFixed(4)}
+              </span>
+            ) : null}
           </div>
 
           {showFakeFlag && <FraudFlag />}
@@ -639,6 +649,7 @@ export default function StockDetailPage() {
             items: attestedItems,
             captured_at: attestation.captured_at,
             cmos_score: attestation.cmos_score,
+            prnu_score: attestation.prnu_score,
             hcs_topic_id:
               (attestation as { hcs_topic_id?: string | null }).hcs_topic_id ??
               null,

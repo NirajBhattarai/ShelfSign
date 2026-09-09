@@ -65,6 +65,9 @@ class ChallengeResponse(BaseModel):
     osdDecoded: str = ""
     attestation: Optional[dict] = None
     frameBase64: Optional[str] = None
+    prnuScore: Optional[float] = None
+    prnuMatch: bool = True
+    prnuAvailable: bool = False
 
 
 @router.post("/enroll", response_model=EnrollResponse)
@@ -139,6 +142,9 @@ def challenge_camera(body: ChallengeRequest) -> ChallengeResponse:
         osdDecoded=str(result.get("osdDecoded") or ""),
         attestation=result.get("attestation"),
         frameBase64=result.get("frameBase64"),
+        prnuScore=result.get("prnuScore"),
+        prnuMatch=bool(result.get("prnuMatch", True)),
+        prnuAvailable=bool(result.get("prnuAvailable")),
     )
 
 

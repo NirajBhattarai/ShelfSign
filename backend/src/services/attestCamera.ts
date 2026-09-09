@@ -82,6 +82,7 @@ export interface FullAttestResult {
   steps: Record<string, unknown>;
   totalUnits: number;
   cmosScore: number;
+  prnuScore: number | null;
   cameraId: string;
   cameraLabel: string | null;
   items: unknown[];
@@ -245,15 +246,15 @@ async function runFullAttestationLocked(
   }
 
   if (camera.escrow_status !== "locked") {
-    // USDC bond is mandatory — covers a slashed bond (forfeited) and a
+    // HBAR bond is mandatory — covers a slashed bond (forfeited) and a
     // camera that was never staked at all (null/released, e.g. pre-mandatory
     // legacy rows). Either way, no active lock means no attestation.
     throw Object.assign(new Error("escrow_required"), {
       status: 402,
       detail:
         camera.escrow_status === "forfeited"
-          ? "This camera's USDC bond was slashed for fraud. The supplier must restake escrow before attestation can resume."
-          : "This camera has no active USDC bond. The supplier must stake escrow before attestation can run.",
+          ? "This camera's HBAR bond was slashed for fraud. The supplier must restake escrow before attestation can resume."
+          : "This camera has no active HBAR bond. The supplier must stake escrow before attestation can run.",
       isFake: camera.escrow_status === "forfeited",
     });
   }
@@ -276,6 +277,9 @@ async function runFullAttestationLocked(
   let cmosScore = 0;
   let signatureValid = false;
   let challengeFrameBase64: string | undefined;
+  let prnuScore: number | null = null;
+  let prnuMatch = true;
+  let prnuAvailable = false;
 
   try {
     const challengeRes = await fetch(`${visionUrl}/cmos/challenge`, {
@@ -309,12 +313,18 @@ async function runFullAttestationLocked(
       osdMatch?: boolean;
       osdDecoded?: string;
       frameBase64?: string | null;
+      prnuScore?: number | null;
+      prnuMatch?: boolean;
+      prnuAvailable?: boolean;
     };
     cmosMatch = challenged.match;
     cmosScore = challenged.score;
     signatureValid = Boolean(challenged.signature) && challenged.match;
     imageHash = challenged.imageHash;
     challengeFrameBase64 = challenged.frameBase64 ?? undefined;
+    prnuScore = challenged.prnuScore ?? null;
+    prnuMatch = challenged.prnuMatch ?? true;
+    prnuAvailable = Boolean(challenged.prnuAvailable);
     steps.challenge = {
       ok: challenged.match,
       match: challenged.match,
@@ -326,6 +336,9 @@ async function runFullAttestationLocked(
       osdDecoded: challenged.osdDecoded,
       imageHash,
       hasFrame: Boolean(challengeFrameBase64),
+      prnuScore,
+      prnuMatch,
+      prnuAvailable,
     };
     steps.cmosMatch = steps.challenge;
   } catch (err) {
@@ -425,13 +438,15 @@ async function runFullAttestationLocked(
     claimedImageHash: imageHash,
     cmosFingerprintMatch: cmosMatch,
     signatureValid,
+    prnuFingerprintMatch: prnuMatch,
   });
 
   if (!verified.ok) {
-    // CMOS/PUF/signature failed against the enrolled real sensor — mark unverified.
+    // CMOS/PUF/signature/PRNU failed against the enrolled real sensor — mark unverified.
     const isFraud =
       verified.reasons.includes("cmos_mismatch") ||
-      verified.reasons.includes("signature_invalid");
+      verified.reasons.includes("signature_invalid") ||
+      verified.reasons.includes("prnu_mismatch");
     if (isFraud) {
       await supabase
         .from("cameras")
@@ -449,6 +464,7 @@ async function runFullAttestationLocked(
       steps: {
         ...steps,
         cmosScore,
+        prnuScore,
         totalUnits,
         fraudFlagged: isFraud,
       },
@@ -479,6 +495,7 @@ async function runFullAttestationLocked(
       model_hash: modelHash,
       items,
       cmos_score: cmosScore,
+      prnu_score: prnuScore,
       detection_count: detectionCount,
       captured_at: new Date().toISOString(),
     })
@@ -506,6 +523,7 @@ async function runFullAttestationLocked(
       model_hash: attestation.model_hash as string,
       items: attestation.items,
       cmos_score: (attestation.cmos_score as number | null) ?? cmosScore,
+      prnu_score: (attestation.prnu_score as number | null) ?? prnuScore,
       detection_count:
         (attestation.detection_count as number | null) ?? detectionCount,
       captured_at: attestation.captured_at as string,
@@ -548,6 +566,7 @@ async function runFullAttestationLocked(
       detection: steps.detection,
       totalUnits,
       cmosScore,
+      prnuScore,
       hcs: hcs
         ? {
             topicId: hcs.topicId,
@@ -558,6 +577,7 @@ async function runFullAttestationLocked(
     },
     totalUnits,
     cmosScore,
+    prnuScore,
     cameraId: enrolledCamera.id,
     cameraLabel: enrolledCamera.label ?? null,
     items,

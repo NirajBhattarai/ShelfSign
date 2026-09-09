@@ -31,6 +31,9 @@ interface AttestResult {
       match?: boolean;
       score?: number;
       correctedBitErrors?: number;
+      prnuScore?: number | null;
+      prnuMatch?: boolean;
+      prnuAvailable?: boolean;
     };
     detection?: {
       items?: StockItem[];
@@ -41,6 +44,7 @@ interface AttestResult {
     };
     totalUnits?: number;
     cmosScore?: number;
+    prnuScore?: number | null;
   };
 }
 
@@ -230,6 +234,17 @@ export function AttestWizard({
                     0
                   ).toFixed(3)}
                 </span>
+                {result.steps.cmosMatch.prnuAvailable && (
+                  <>
+                    {" · "}
+                    PRNU{" "}
+                    <span className="mono">
+                      {result.steps.cmosMatch.prnuScore != null
+                        ? Number(result.steps.cmosMatch.prnuScore).toFixed(4)
+                        : "—"}
+                    </span>
+                  </>
+                )}
               </div>
             )}
           </li>

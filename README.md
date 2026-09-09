@@ -18,7 +18,7 @@ Buyers cannot reliably see real supplier inventory. Spreadsheets and chat update
 4. Capture a live frame bound to that nonce; verify it matches the enrolled CMOS fingerprint.
 5. Run vision (YOLO / PyTorch) → stock counts.
 6. Publish a **signed stock attestation** (image hash + CMOS account + nonce + counts).
-7. Buyers browse attested stock and place buy orders. Pay-per-query access is live via **Hedera x402**. A **camera USDC bond** (supplier locks 10 HTS USDC per camera on enroll — mandatory, no bond means no enrollment) is forfeited if a Chainlink CRE fraud review returns `SLASH`, and must be restaked to clear the fraud flag.
+7. Buyers browse attested stock and place buy orders. Pay-per-query access is live via **Hedera x402**. A **camera HBAR bond** (supplier locks 10 ℏ per camera on enroll — mandatory, no bond means no enrollment; easy to fund from the Hedera faucet) is forfeited if a Chainlink CRE fraud review returns `SLASH`, and must be restaked to clear the fraud flag.
 
 **Tagline:** Live stock from _this_ camera, _right now_ — silicon identity + nonce, not a spreadsheet.
 
@@ -77,7 +77,7 @@ Attestation: stock + imageHash + cameraAccount + nonce + modelHash
        ↓
 Sign (camera-bound account / supplier key)
        ↓
-Attestation → Hedera HCS (live). Camera enroll → mandatory USDC bond lock (Hedera escrow vault)
+Attestation → Hedera HCS (live). Camera enroll → mandatory HBAR bond lock (Hedera escrow vault)
        ↓
 Buyer browses attested stock → x402 unlock → places buy order
 ```
@@ -87,15 +87,16 @@ Buyer browses attested stock → x402 unlock → places buy order
 | Layer                               | Stops                                                |
 | ----------------------------------- | ---------------------------------------------------- |
 | CMOS impurity fingerprint → account | Phone uploads, swapped cameras, generic stock photos |
+| Classical PRNU residual correlation | Camera swap / re-photographed footage (independent of the signing key) |
 | Attestable nonce                    | Replay of old “full shelf” videos                    |
 | Image hash + HCS log                | Editing the photo after the fact; silent rewrite     |
 | Signature                           | Random third-party forgery                           |
 | Model hash                          | Silent detector swap                                 |
 | Fraud flag (`is_fake` in DB)        | Persist unverified camera after CMOS/sig fail        |
-| Camera USDC bond (mandatory)        | Cheap lying about staged aisles                      |
+| Camera HBAR bond (mandatory)        | Cheap lying about staged aisles                      |
 | Chainlink CRE confidential review   | Private fraud score without leaking camera internals |
 
-A supplier can still stage the real aisle before the shot — the camera USDC bond + CRE `SLASH`/`HOLD` covers economic honesty once shipping. `SLASH` forfeits the bond to the platform and blocks attestation until the supplier restakes; a clean attestation alone no longer clears the flag. Camera physics stops _remote_ faking and replay.
+A supplier can still stage the real aisle before the shot — the camera HBAR bond + CRE `SLASH`/`HOLD` covers economic honesty once shipping. `SLASH` forfeits the bond to the platform and blocks attestation until the supplier restakes; a clean attestation alone no longer clears the flag. Camera physics stops _remote_ faking and replay.
 
 ---
 
@@ -152,8 +153,8 @@ Checkboxes mark what is done in the repo today. Unchecked items are still open.
 - [x] x402 paywalled stock queries (Blocky402 + Hedera exact scheme)
 - [x] Camera fraud / unverified flag + concurrent attest lock (`0008` / `0009`)
 - [x] `fake-cam/` ISAPI stub for controlled CMOS-reject demos
-- [ ] Classical PRNU residual correlation (current path is pixel-stability PUF)
-- [x] Camera HTS USDC bond — **mandatory**, no bond means no enrollment (10 USDC lock on camera enroll → Hedera escrow vault)
+- [x] Classical PRNU residual correlation (`vision-service/src/cmos/prnu.py` — wavelet-domain denoising + fingerprint correlation, layered on top of the pixel-stability PUF signing key; informational by default, see `SHELFSIGN_ENFORCE_PRNU`)
+- [x] Camera HBAR bond — **mandatory**, no bond means no enrollment (10 ℏ lock on camera enroll → Hedera escrow vault)
 - [x] Chainlink CRE confidential fraud review (`cre/fraud-review`, TEE `handlerInTee`)
 - [x] CRE `SLASH` → forfeit camera bond; `POST /cameras/:id/restake` → clear fraud flag
 
@@ -222,6 +223,9 @@ Prefer a **local warehouse agent**:
 
 Buyers never get RTSP. The cloud never needs the warehouse’s camera admin password.
 
+**Lab Hikvision (`192.168.50.64`) unreachable from a Mac on `192.168.100.x`?**  
+That is a LAN alias / subnet issue, not CMOS or auth. See **[docs/hikvision-lan.md](docs/hikvision-lan.md)** for diagnosis and the `en0` `192.168.50.10` fix.
+
 ---
 
 ## Stack
@@ -231,8 +235,8 @@ Buyers never get RTSP. The cloud never needs the warehouse’s camera admin pass
 - **Vision:** Python FastAPI — YOLO stock detection + CMOS / PUF (SiliconWitness-style) fingerprinting
 - **Data:** Supabase (Postgres + RLS)
 - **Chain (live):** Hedera testnet — HCS attestation log + x402 pay-per-query (HTS USDC via Blocky402)
-- **Chainlink CRE:** Confidential fraud review workflow (`cre/`) — TEE scores private camera risk; public CLEAR/HOLD/SLASH only
-- **Bond lifecycle (live):** lock on camera enroll → CRE `SLASH` forfeits it (via `/cre/internal/verdicts` and `/cre/reviews/:id/run-local`) → attestation blocked → supplier `POST /cameras/:id/restake` relocks 10 USDC and clears the flag
+- **Chainlink CRE:** Confidential fraud review workflow (`cre/`) — TEE scores private camera risk; public CLEAR/HOLD/SLASH only. Architecture + local `cre workflow simulate` steps: [`cre/README.md`](cre/README.md).
+- **Bond lifecycle (live):** lock on camera enroll → CRE `SLASH` forfeits it (via `/cre/internal/verdicts` and `/cre/reviews/:id/run-local`) → attestation blocked → supplier `POST /cameras/:id/restake` relocks 10 HBAR and clears the flag
 
 ---
 
@@ -245,6 +249,7 @@ ShelfSign/
 ├── backend/             Express — nonce, attest verify, HCS, x402, cameras / warehouses / orders
 ├── vision-service/      FastAPI — YOLO + CMOS/PUF enroll & challenge
 ├── fake-cam/            Demo-only Hikvision ISAPI stub (CMOS-reject demos)
+├── docs/                Lab runbooks (e.g. Hikvision LAN reachability)
 ├── supabase/migrations/ SQL schema + RLS
 └── .claude/agents/      Scoped subagents per stack area
 ```
@@ -281,7 +286,7 @@ cd backend
 # Or set HEDERA_PAT and run:
 npm run setup:hcs
 
-# Camera USDC bond is mandatory — POST /cameras refuses to enroll without this:
+# Camera HBAR bond is mandatory — POST /cameras refuses to enroll without this:
 npm run setup:escrow
 ```
 
@@ -353,7 +358,7 @@ cd backend && npm run seed:two-warehouses
 - Not freelance escrow or remittance
 - Not a claim that vision counts are perfect inventory truth
 - Not requiring buyers (or the cloud) to hold the camera password
-- Not a self-funded supplier bond — the lock/restake USDC comes from a
+- Not a self-funded supplier bond — the lock/restake HBAR comes from a
   platform-controlled funder account (`ESCROW_FUNDER_ID`, defaults to the
   x402 agent wallet), not from a Hedera account the supplier owns. The escrow
   vault key is also the platform operator's key. Real economic slashing would
@@ -366,3 +371,10 @@ cd backend && npm run seed:two-warehouses
   CLI alongside the app, per `cre/README.md`. A verified simulate run
   (`CLEAR` and `SLASH`, both `source: "cre"`, against real backend data) is
   captured in `cre/EVIDENCE.md`.
+- Not a calibrated PRNU fraud gate — the classical PRNU correlation
+  (`vision-service/src/cmos/prnu.py`) runs on every attestation and its score
+  is recorded (`attestations.prnu_score`), but `PRNU_MATCH_THRESHOLD` is a
+  literature-typical starting point, not one validated against this
+  deployment's real camera + JPEG compression. It's informational until
+  `SHELFSIGN_ENFORCE_PRNU=1` is set on both the backend and vision-service
+  after that calibration.

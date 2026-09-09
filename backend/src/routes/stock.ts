@@ -97,7 +97,7 @@ stockRouter.get(
       const { data: rows } = await supabase
         .from("attestations")
         .select(
-          "id, camera_id, camera_account, nonce, image_hash, model, model_hash, items, captured_at, cmos_score, detection_count, hcs_topic_id, hcs_sequence_number, hcs_transaction_id",
+          "id, camera_id, camera_account, nonce, image_hash, model, model_hash, items, captured_at, cmos_score, prnu_score, detection_count, hcs_topic_id, hcs_sequence_number, hcs_transaction_id",
         )
         .in("camera_id", cameraIds)
         .order("captured_at", { ascending: false })

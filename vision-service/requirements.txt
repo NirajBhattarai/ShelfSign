@@ -18,4 +18,7 @@ eth-utils>=5.3
 eth-hash[pycryptodome]>=0.7
 pycryptodome>=3.20
 pytesseract>=0.3.10
+# Classical PRNU sensor-noise fingerprinting (src/cmos/prnu.py) -- wavelet
+# decomposition for Mihcak-style denoising.
+PyWavelets>=1.4
 

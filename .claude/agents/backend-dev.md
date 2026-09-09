@@ -1,6 +1,6 @@
 ---
 name: backend-dev
-description: Use for any work inside backend/ — the Node/Express/TypeScript API that issues nonces, verifies attestations, gateways x402-paywalled stock queries, and talks to Hedera (+ CRE fraud review / mandatory camera USDC bond via escrow.ts). Trigger on "backend", "API route", "nonce challenge", "x402", "attestation verify", "Hedera", "CRE", "escrow".
+description: Use for any work inside backend/ — the Node/Express/TypeScript API that issues nonces, verifies attestations, gateways x402-paywalled stock queries, and talks to Hedera (+ CRE fraud review / mandatory camera HBAR bond via escrow.ts). Trigger on "backend", "API route", "nonce challenge", "x402", "attestation verify", "Hedera", "CRE", "escrow".
 tools: Read, Edit, Write, Bash, Grep, Glob
 model: sonnet
 ---
@@ -31,7 +31,7 @@ Conventions:
   assumes direct camera access.
 - Keep chain/x402 integrations behind the `src/services/` interfaces so
   routes stay thin.
-- Do not reintroduce Arc; the camera bond is HTS USDC on Hedera via
+- Do not reintroduce Arc; the camera bond is native HBAR on Hedera via
   `src/services/escrow.ts`, and it's mandatory — `POST /cameras` refuses to
   enroll a camera without it (503/502), it's not an optional add-on.
 

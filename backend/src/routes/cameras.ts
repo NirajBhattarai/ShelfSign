@@ -1,10 +1,7 @@
 import { Readable } from "node:stream";
 import { Router } from "express";
 import { requireAuth, type AuthedRequest } from "../middleware/auth.js";
-import {
-  escrowConfigured,
-  lockCameraEscrow,
-} from "../services/escrow.js";
+import { escrowConfigured, lockCameraEscrow } from "../services/escrow.js";
 import { supabase } from "../services/supabase.js";
 import {
   getDefaultCameraCredentials,
@@ -170,12 +167,12 @@ cameraRouter.post("/", async (req: AuthedRequest, res) => {
     return;
   }
 
-  // USDC bond is mandatory — every camera must be backed by an escrow lock.
+  // HBAR bond is mandatory — every camera must be backed by an escrow lock.
   if (!escrowConfigured()) {
     res.status(503).json({
       error: "escrow_not_configured",
       detail:
-        "USDC escrow is required for camera enrollment. Run npm run setup:escrow.",
+        "HBAR escrow is required for camera enrollment. Run npm run setup:escrow.",
     });
     return;
   }
@@ -231,7 +228,7 @@ cameraRouter.post("/", async (req: AuthedRequest, res) => {
         cmosAccount: string;
       };
 
-      // USDC bond is mandatory: a camera that can't lock escrow never
+      // HBAR bond is mandatory: a camera that can't lock escrow never
       // becomes "enrolled", regardless of CMOS/PUF success.
       let lock;
       try {
@@ -359,7 +356,7 @@ cameraRouter.post(
   },
 );
 
-// USDC bond is mandatory for attestation. Locks (or relocks) it for a camera
+// HBAR bond is mandatory for attestation. Locks (or relocks) it for a camera
 // that has none — after a CRE SLASH forfeiture, or a legacy camera enrolled
 // before escrow was mandatory. Clears the fraud flag once locked.
 cameraRouter.post("/:id/restake", async (req: AuthedRequest, res) => {
@@ -383,7 +380,7 @@ cameraRouter.post("/:id/restake", async (req: AuthedRequest, res) => {
   if (camera.escrow_status === "locked") {
     res.status(400).json({
       error: "already_locked",
-      detail: "This camera already has an active USDC bond.",
+      detail: "This camera already has an active HBAR bond.",
     });
     return;
   }

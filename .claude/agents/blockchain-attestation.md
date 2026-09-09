@@ -1,6 +1,6 @@
 ---
 name: blockchain-attestation
-description: Use for anything cutting across backend and chain layers — attestation JSON schema, signing scheme, Hedera HCS publishing, mandatory camera HTS USDC bond (lock/slash/restake), x402 payment scheme, Chainlink CRE verdicts. Trigger on "attestation schema", "signing", "Hedera", "HCS", "escrow", "bond", "x402 scheme", "CRE".
+description: Use for anything cutting across backend and chain layers — attestation JSON schema, signing scheme, Hedera HCS publishing, mandatory camera HBAR bond (lock/slash/restake), x402 payment scheme, Chainlink CRE verdicts. Trigger on "attestation schema", "signing", "Hedera", "HCS", "escrow", "bond", "x402 scheme", "CRE".
 tools: Read, Edit, Write, Bash, Grep, Glob
 model: sonnet
 ---
@@ -20,8 +20,8 @@ in which case update the README's example alongside the code.
 Responsibilities:
 - Hedera HCS: publish attestations to the configured topic; keep the message
   format stable and documented.
-- Mandatory camera HTS USDC bond (`backend/src/services/escrow.ts`): supplier
-  locks 10 USDC on camera enroll — `POST /cameras` refuses to enroll without
+- Mandatory camera HBAR bond (`backend/src/services/escrow.ts`): supplier
+  locks 10 ℏ on camera enroll — `POST /cameras` refuses to enroll without
   it. A CRE `SLASH` verdict forfeits the bond and blocks attestation
   (`escrow_status !== "locked"`) until the supplier calls
   `POST /cameras/:id/restake`. Do not bring back Arc, and don't describe this

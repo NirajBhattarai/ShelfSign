@@ -17,13 +17,15 @@ from __future__ import annotations
 import random
 import string
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Optional
 
 import numpy as np
 
 from .capture import capture_snapshot, saturation_variance
 from .isapi_client import ISAPIClient
 from .isapi_controls import set_color, set_ir_brightness, set_ircut_mode, set_osd_text
+from .prnu import estimate_fingerprint
 from .puf_coords import bits_to_bytes, extract_bits, select_stable_coords_from_burst
 from .puf_fuzzy_extractor import BCHParams, enroll as fx_enroll, pick_bch_params, regenerate as fx_regenerate
 from .puf_keys import derive_address, derive_private_key, zero_key_material
@@ -57,6 +59,11 @@ class EnrollmentRecord:
     candidate_bits: int
     burst_worst_flips: int
     enrolled_at: float
+    # Classical PRNU reference pattern (see prnu.py) -- deliberately NOT part
+    # of to_json/from_json. It's a per-pixel float array the size of the
+    # sensor (megabytes), so fingerprint.py persists it as a sidecar .npy
+    # file next to the JSON record instead of bloating the enrollment JSON.
+    prnu_fingerprint: Optional[np.ndarray] = field(default=None, repr=False)
 
     def to_json(self) -> dict:
         return {
@@ -142,6 +149,7 @@ def enroll_from_camera(
             captures, candidate_pool=stability_pool, n_final=candidate_bits,
         )
         burst_worst_flips = int(flip_counts.max())
+        prnu_fingerprint = estimate_fingerprint(captures)
         measured_bytes = bits_to_bytes(reference_bits)
 
         assumed_worst_flips = max(ASSUMED_WORST_CASE_FLIPS_FLOOR, burst_worst_flips * 3)
@@ -166,6 +174,7 @@ def enroll_from_camera(
             candidate_bits=len(measured_bytes) * 8,
             burst_worst_flips=burst_worst_flips,
             enrolled_at=time.time(),
+            prnu_fingerprint=prnu_fingerprint,
         )
 
 

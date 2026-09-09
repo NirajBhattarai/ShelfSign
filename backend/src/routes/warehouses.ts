@@ -243,6 +243,7 @@ interface CatalogRow {
     model_hash: string | null;
     captured_at: string;
     cmos_score: number | null;
+    prnu_score: number | null;
     detection_count: number | null;
   };
   item: {
@@ -338,6 +339,7 @@ warehouseRouter.get("/catalog", async (req, res) => {
         items: unknown;
         captured_at: string;
         cmos_score: number | null;
+        prnu_score: number | null;
         detection_count: number | null;
       };
       let latestAtt: LatestAtt | null = null;
@@ -346,7 +348,7 @@ warehouseRouter.get("/catalog", async (req, res) => {
         const { data: attestations } = await supabase
           .from("attestations")
           .select(
-            "id, camera_id, camera_account, nonce, image_hash, model_hash, items, captured_at, cmos_score, detection_count",
+            "id, camera_id, camera_account, nonce, image_hash, model_hash, items, captured_at, cmos_score, prnu_score, detection_count",
           )
           .in("camera_id", cameraIds)
           .order("captured_at", { ascending: false })
@@ -375,6 +377,7 @@ warehouseRouter.get("/catalog", async (req, res) => {
                 model_hash: latestAtt.model_hash,
                 captured_at: latestAtt.captured_at,
                 cmos_score: latestAtt.cmos_score,
+                prnu_score: latestAtt.prnu_score,
                 detection_count: latestAtt.detection_count,
               }
             : {
@@ -386,6 +389,7 @@ warehouseRouter.get("/catalog", async (req, res) => {
                 model_hash: null,
                 captured_at: stock.updated_at,
                 cmos_score: null,
+                prnu_score: null,
                 detection_count: null,
               },
           item: {
@@ -635,6 +639,7 @@ warehouseRouter.get("/:id/stock/:sku", async (req: AuthedRequest, res) => {
     items: unknown;
     captured_at: string;
     cmos_score: number | null;
+    prnu_score: number | null;
     detection_count: number | null;
   };
   let matchedAtt: MatchedAtt | null = null;
@@ -643,7 +648,7 @@ warehouseRouter.get("/:id/stock/:sku", async (req: AuthedRequest, res) => {
     const { data: attestations } = await supabase
       .from("attestations")
       .select(
-        "id, camera_id, camera_account, nonce, image_hash, model, model_hash, items, captured_at, cmos_score, detection_count",
+        "id, camera_id, camera_account, nonce, image_hash, model, model_hash, items, captured_at, cmos_score, prnu_score, detection_count",
       )
       .in("camera_id", cameraIds)
       .order("captured_at", { ascending: false })
@@ -713,6 +718,7 @@ warehouseRouter.get("/:id/stock/:sku", async (req: AuthedRequest, res) => {
       items: detectedItems,
       captured_at: matchedAtt?.captured_at ?? stock.updated_at,
       cmos_score: matchedAtt?.cmos_score ?? null,
+      prnu_score: matchedAtt?.prnu_score ?? null,
       detection_count: matchedAtt?.detection_count ?? null,
     },
     liveStreamUrl,
@@ -811,6 +817,7 @@ warehouseRouter.post(
         countedAt: result.countedAt,
         nonce: result.nonce,
         cmosScore: result.cmosScore,
+        prnuScore: result.prnuScore,
         attestationId: (result.attestation as { id?: string }).id ?? null,
         attestation: result.attestation,
         steps: result.steps,

@@ -1,6 +1,6 @@
 /**
- * Create the ShelfSign Hedera USDC escrow vault (operator-keyed account)
- * and associate the HTS USDC token. Writes HEDERA_ESCROW_ACCOUNT_ID to .env.
+ * Create the ShelfSign Hedera HBAR escrow vault (operator-keyed account).
+ * Writes HEDERA_ESCROW_ACCOUNT_ID + ESCROW_AMOUNT_HBAR to .env.
  *
  *   npm run setup:escrow
  */
@@ -8,7 +8,11 @@ import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import "../src/loadEnv.js";
-import { createEscrowVault, escrowAmountUnits } from "../src/services/escrow.js";
+import {
+  createEscrowVault,
+  escrowAmountUnits,
+  HBAR_TOKEN_ID,
+} from "../src/services/escrow.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const envPath = resolve(__dirname, "../.env");
@@ -26,12 +30,16 @@ function upsertEnv(vars: Record<string, string>) {
 
 async function main() {
   const result = await createEscrowVault();
-  const amountUsdc = (escrowAmountUnits() / 1_000_000).toFixed(2);
+  const amountHbar = (escrowAmountUnits() / 100_000_000).toFixed(2);
+  const amountEnv =
+    process.env.ESCROW_AMOUNT_HBAR?.trim() ||
+    process.env.ESCROW_AMOUNT_USDC?.trim() ||
+    "10";
 
   upsertEnv({
     HEDERA_ESCROW_ACCOUNT_ID: result.escrowAccountId,
-    ESCROW_TOKEN_ID: result.tokenId,
-    ESCROW_AMOUNT_USDC: process.env.ESCROW_AMOUNT_USDC?.trim() || "1",
+    ESCROW_TOKEN_ID: HBAR_TOKEN_ID,
+    ESCROW_AMOUNT_HBAR: amountEnv,
   });
 
   console.log(
@@ -40,10 +48,10 @@ async function main() {
         created: result.created,
         escrowAccountId: result.escrowAccountId,
         tokenId: result.tokenId,
-        lockPerCameraUsdc: amountUsdc,
+        lockPerCameraHbar: amountHbar,
         hashscan: `https://hashscan.io/testnet/account/${result.escrowAccountId}`,
         note: result.created
-          ? "New escrow vault created and USDC-associated."
+          ? "New HBAR escrow vault created."
           : "Reused existing HEDERA_ESCROW_ACCOUNT_ID.",
       },
       null,
