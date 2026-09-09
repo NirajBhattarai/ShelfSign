@@ -24,6 +24,10 @@ venv/
 vision-service/data/
 vision-service/models/
 
+# Supabase CLI local runtime state
+supabase/.branches/
+supabase/.temp/
+
 # OS
 .DS_Store
 

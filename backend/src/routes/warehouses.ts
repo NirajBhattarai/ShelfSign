@@ -761,7 +761,7 @@ warehouseRouter.post(
     let cameraQuery = supabase
       .from("cameras")
       .select(
-        "id, supplier_id, warehouse_id, host, username, password, cmos_account, enrollment_status, label, is_fake",
+        "id, supplier_id, warehouse_id, host, username, password, cmos_account, enrollment_status, label, is_fake, escrow_status",
       )
       .eq("warehouse_id", warehouseId)
       .order("created_at", { ascending: true })
@@ -771,7 +771,7 @@ warehouseRouter.post(
       cameraQuery = supabase
         .from("cameras")
         .select(
-          "id, supplier_id, warehouse_id, host, username, password, cmos_account, enrollment_status, label, is_fake",
+          "id, supplier_id, warehouse_id, host, username, password, cmos_account, enrollment_status, label, is_fake, escrow_status",
         )
         .eq("warehouse_id", warehouseId)
         .eq("id", cameraIdHint)

@@ -18,7 +18,7 @@ Buyers cannot reliably see real supplier inventory. Spreadsheets and chat update
 4. Capture a live frame bound to that nonce; verify it matches the enrolled CMOS fingerprint.
 5. Run vision (YOLO / PyTorch) → stock counts.
 6. Publish a **signed stock attestation** (image hash + CMOS account + nonce + counts).
-7. Buyers browse attested stock and place buy orders. Pay-per-query access is live via **Hedera x402**; optional **USDC bond + slash** (Arc) is planned.
+7. Buyers browse attested stock and place buy orders. Pay-per-query access is live via **Hedera x402**. A **camera USDC bond** (supplier locks 10 HTS USDC per camera on enroll — mandatory, no bond means no enrollment) is forfeited if a Chainlink CRE fraud review returns `SLASH`, and must be restaked to clear the fraud flag.
 
 **Tagline:** Live stock from _this_ camera, _right now_ — silicon identity + nonce, not a spreadsheet.
 
@@ -77,7 +77,7 @@ Attestation: stock + imageHash + cameraAccount + nonce + modelHash
        ↓
 Sign (camera-bound account / supplier key)
        ↓
-Attestation → Hedera HCS (live) / Arc bond (planned)
+Attestation → Hedera HCS (live). Camera enroll → mandatory USDC bond lock (Hedera escrow vault)
        ↓
 Buyer browses attested stock → x402 unlock → places buy order
 ```
@@ -92,9 +92,10 @@ Buyer browses attested stock → x402 unlock → places buy order
 | Signature                           | Random third-party forgery                           |
 | Model hash                          | Silent detector swap                                 |
 | Fraud flag (`is_fake` in DB)        | Persist unverified camera after CMOS/sig fail        |
-| USDC bond + slash (planned)         | Cheap lying about staged aisles                      |
+| Camera USDC bond (mandatory)        | Cheap lying about staged aisles                      |
+| Chainlink CRE confidential review   | Private fraud score without leaking camera internals |
 
-A supplier can still stage the real aisle before the shot — bond + dispute covers that once shipping. Camera physics stops _remote_ faking and replay.
+A supplier can still stage the real aisle before the shot — the camera USDC bond + CRE `SLASH`/`HOLD` covers economic honesty once shipping. `SLASH` forfeits the bond to the platform and blocks attestation until the supplier restakes; a clean attestation alone no longer clears the flag. Camera physics stops _remote_ faking and replay.
 
 ---
 
@@ -152,9 +153,9 @@ Checkboxes mark what is done in the repo today. Unchecked items are still open.
 - [x] Camera fraud / unverified flag + concurrent attest lock (`0008` / `0009`)
 - [x] `fake-cam/` ISAPI stub for controlled CMOS-reject demos
 - [ ] Classical PRNU residual correlation (current path is pixel-stability PUF)
-- [ ] Arc USDC bond / slash
-- [ ] The Graph indexing for bond/slash events
+- [x] Camera HTS USDC bond — **mandatory**, no bond means no enrollment (10 USDC lock on camera enroll → Hedera escrow vault)
 - [x] Chainlink CRE confidential fraud review (`cre/fraud-review`, TEE `handlerInTee`)
+- [x] CRE `SLASH` → forfeit camera bond; `POST /cameras/:id/restake` → clear fraud flag
 
 ### Buyer routes
 
@@ -231,7 +232,7 @@ Buyers never get RTSP. The cloud never needs the warehouse’s camera admin pass
 - **Data:** Supabase (Postgres + RLS)
 - **Chain (live):** Hedera testnet — HCS attestation log + x402 pay-per-query (HTS USDC via Blocky402)
 - **Chainlink CRE:** Confidential fraud review workflow (`cre/`) — TEE scores private camera risk; public CLEAR/HOLD/SLASH only
-- **Planned:** Arc USDC bond / slash (optional; not required for ETHOnline Chainlink track)
+- **Bond lifecycle (live):** lock on camera enroll → CRE `SLASH` forfeits it (via `/cre/internal/verdicts` and `/cre/reviews/:id/run-local`) → attestation blocked → supplier `POST /cameras/:id/restake` relocks 10 USDC and clears the flag
 
 ---
 
@@ -279,6 +280,9 @@ cd backend
 # Fund OPERATOR + AGENT EVM addresses at https://faucet.hedera.com
 # Or set HEDERA_PAT and run:
 npm run setup:hcs
+
+# Camera USDC bond is mandatory — POST /cameras refuses to enroll without this:
+npm run setup:escrow
 ```
 
 `frontend/` and `backend/` are npm workspaces off the root `package.json` — `npm install` from the repo root installs both.
@@ -349,3 +353,16 @@ cd backend && npm run seed:two-warehouses
 - Not freelance escrow or remittance
 - Not a claim that vision counts are perfect inventory truth
 - Not requiring buyers (or the cloud) to hold the camera password
+- Not a self-funded supplier bond — the lock/restake USDC comes from a
+  platform-controlled funder account (`ESCROW_FUNDER_ID`, defaults to the
+  x402 agent wallet), not from a Hedera account the supplier owns. The escrow
+  vault key is also the platform operator's key. Real economic slashing would
+  need suppliers to hold and sign from their own accounts.
+- Not a live, deployed Chainlink DON workflow — `cre/fraud-review` runs via
+  `cre workflow simulate` against a local backend (`127.0.0.1:4000` in
+  `config.staging.json`); the app's own "Run CRE review" button only calls
+  the `POST /cre/reviews/:id/run-local` mirror (`source: "local"`), not the
+  TEE. Getting `source: "cre"` verdicts requires manually running the CRE
+  CLI alongside the app, per `cre/README.md`. A verified simulate run
+  (`CLEAR` and `SLASH`, both `source: "cre"`, against real backend data) is
+  captured in `cre/EVIDENCE.md`.

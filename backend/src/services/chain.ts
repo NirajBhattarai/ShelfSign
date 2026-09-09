@@ -167,6 +167,24 @@ export async function publishPaymentReceiptToHcs(receipt: {
   });
 }
 
+export async function publishCameraEscrowToHcs(event: {
+  action: "lock" | "release" | "forfeit";
+  cameraId: string;
+  warehouseId: string;
+  supplierId: string;
+  label: string;
+  escrowAccountId: string;
+  tokenId: string;
+  amount: number;
+  transactionId: string;
+}): Promise<HcsPublishResult> {
+  return submitMessage({
+    type: "shelfsign.camera_escrow.v1",
+    ...event,
+    lockedAt: new Date().toISOString(),
+  });
+}
+
 export interface HcsMirrorMessage {
   sequence_number: number;
   consensus_timestamp: string;

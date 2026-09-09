@@ -68,6 +68,7 @@ export default function WarehouseDetailClient() {
   const [viewingCamera, setViewingCamera] = useState<Camera | null>(null);
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
   const [attestingCamera, setAttestingCamera] = useState<Camera | null>(null);
+  const [restakingId, setRestakingId] = useState<string | null>(null);
   const [stockRows, setStockRows] = useState<StockRow[]>([]);
   const [stockLoading, setStockLoading] = useState(true);
   const [savingStock, setSavingStock] = useState(false);
@@ -123,12 +124,30 @@ export default function WarehouseDetailClient() {
       await refetchCameras();
       resetCameraForm();
       showToast("Camera registered.", "success");
-    } catch {
+    } catch (err) {
       setError(
-        "Couldn't enroll that camera — check backend camera settings and try again.",
+        err instanceof Error
+          ? err.message
+          : "Couldn't enroll that camera — check backend camera settings and try again.",
       );
     } finally {
       setRegistering(false);
+    }
+  }
+
+  async function restakeEscrow(cam: Camera) {
+    setRestakingId(cam.id);
+    try {
+      await apiPost<Camera>(`/cameras/${cam.id}/restake`);
+      await refetchCameras();
+      showToast("Escrow restaked — fraud flag cleared.", "success");
+    } catch {
+      showToast(
+        "Restake failed — check backend escrow config and try again.",
+        "error",
+      );
+    } finally {
+      setRestakingId(null);
     }
   }
 
@@ -311,6 +330,16 @@ export default function WarehouseDetailClient() {
                       Verified camera
                     </span>
                   )}
+                  {cam.escrow_status === "forfeited" ? (
+                    <span className="meta-chip" data-tone="danger">
+                      Bond slashed
+                    </span>
+                  ) : cam.enrollment_status === "enrolled" &&
+                    cam.escrow_status !== "locked" ? (
+                    <span className="meta-chip" data-tone="danger">
+                      Bond required
+                    </span>
+                  ) : null}
                   {attestBusy ? (
                     <span className="meta-chip" data-tone="warn">
                       Attest in progress
@@ -327,6 +356,54 @@ export default function WarehouseDetailClient() {
                     . Buyers will see a trust warning for this warehouse.
                   </div>
                 ) : null}
+                {cam.escrow_status === "locked" && (
+                  <div className="row-sub" style={{ marginTop: 4 }}>
+                    USDC bond locked
+                    {cam.escrow_amount != null
+                      ? ` · ${(cam.escrow_amount / 1_000_000).toFixed(2)} USDC`
+                      : ""}
+                    {cam.escrow_hashscan_url ? (
+                      <>
+                        {" · "}
+                        <a
+                          href={cam.escrow_hashscan_url}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          HashScan
+                        </a>
+                      </>
+                    ) : null}
+                  </div>
+                )}
+                {cam.escrow_status === "forfeited" && (
+                  <div className="row-sub" style={{ marginTop: 4 }}>
+                    USDC bond slashed for fraud
+                    {cam.escrow_forfeited_at
+                      ? ` · ${new Date(cam.escrow_forfeited_at).toLocaleString()}`
+                      : ""}
+                    {cam.escrow_slash_hashscan_url ? (
+                      <>
+                        {" · "}
+                        <a
+                          href={cam.escrow_slash_hashscan_url}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          HashScan
+                        </a>
+                      </>
+                    ) : null}
+                    . Attestation is paused until the bond is restaked.
+                  </div>
+                )}
+                {cam.enrollment_status === "enrolled" &&
+                  !cam.escrow_status && (
+                    <div className="row-sub" style={{ marginTop: 4 }}>
+                      No USDC bond on file for this camera. Attestation is
+                      paused until 10 USDC is staked.
+                    </div>
+                  )}
               </div>
               <div
                 style={{
@@ -336,15 +413,34 @@ export default function WarehouseDetailClient() {
                   flexWrap: "wrap",
                 }}
               >
+                {cam.enrollment_status === "enrolled" &&
+                  cam.escrow_status !== "locked" && (
+                    <button
+                      className="btn btn-primary"
+                      style={{ padding: "8px 12px" }}
+                      disabled={restakingId === cam.id}
+                      onClick={() => restakeEscrow(cam)}
+                    >
+                      {restakingId === cam.id
+                        ? "Staking…"
+                        : cam.escrow_status === "forfeited"
+                          ? "Restake 10 USDC"
+                          : "Stake 10 USDC"}
+                    </button>
+                  )}
                 {cam.enrollment_status === "enrolled" && (
                   <button
                     className="btn btn-primary"
                     style={{ padding: "8px 12px" }}
-                    disabled={attestBusy}
+                    disabled={attestBusy || cam.escrow_status !== "locked"}
                     title={
-                      attestBusy
-                        ? "Another attestation is running on this camera"
-                        : undefined
+                      cam.escrow_status === "forfeited"
+                        ? "Bond was slashed — restake before attesting"
+                        : cam.escrow_status !== "locked"
+                          ? "No USDC bond on file — stake before attesting"
+                          : attestBusy
+                            ? "Another attestation is running on this camera"
+                            : undefined
                     }
                     onClick={() => setAttestingCamera(cam)}
                   >

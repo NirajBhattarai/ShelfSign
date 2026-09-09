@@ -29,6 +29,16 @@ export interface Camera {
   fraud_detected_at?: string | null;
   attest_locked_at?: string | null;
   attest_locked_by?: string | null;
+  escrow_status?: "locked" | "released" | "forfeited" | null;
+  escrow_amount?: number | null;
+  escrow_token_id?: string | null;
+  escrow_account_id?: string | null;
+  escrow_tx_id?: string | null;
+  escrow_hashscan_url?: string | null;
+  escrow_locked_at?: string | null;
+  escrow_forfeited_at?: string | null;
+  escrow_slash_tx_id?: string | null;
+  escrow_slash_hashscan_url?: string | null;
 }
 
 export type OrderStatus = "pending" | "confirmed" | "fulfilled" | "cancelled";

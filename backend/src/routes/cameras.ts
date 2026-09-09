@@ -1,6 +1,10 @@
 import { Readable } from "node:stream";
 import { Router } from "express";
 import { requireAuth, type AuthedRequest } from "../middleware/auth.js";
+import {
+  escrowConfigured,
+  lockCameraEscrow,
+} from "../services/escrow.js";
 import { supabase } from "../services/supabase.js";
 import {
   getDefaultCameraCredentials,
@@ -14,6 +18,9 @@ import {
 import { requireX402Payment } from "../services/x402.js";
 
 export const cameraRouter = Router();
+
+const ESCROW_CAMERA_COLUMNS =
+  "id, warehouse_id, supplier_id, label, host, enrollment_status, cmos_account, is_fake, fraud_detected_at, escrow_status, escrow_amount, escrow_token_id, escrow_account_id, escrow_tx_id, escrow_hashscan_url, escrow_locked_at, escrow_forfeited_at, escrow_slash_tx_id, escrow_slash_hashscan_url, created_at";
 
 // Near-live camera view for the supplier dashboard: an <img> tag can't set
 // an Authorization header, so this route authenticates via a query-param
@@ -163,6 +170,16 @@ cameraRouter.post("/", async (req: AuthedRequest, res) => {
     return;
   }
 
+  // USDC bond is mandatory — every camera must be backed by an escrow lock.
+  if (!escrowConfigured()) {
+    res.status(503).json({
+      error: "escrow_not_configured",
+      detail:
+        "USDC escrow is required for camera enrollment. Run npm run setup:escrow.",
+    });
+    return;
+  }
+
   const { data: warehouse } = await supabase
     .from("warehouses")
     .select("id")
@@ -213,13 +230,45 @@ cameraRouter.post("/", async (req: AuthedRequest, res) => {
       const { cmosAccount } = (await enrollRes.json()) as {
         cmosAccount: string;
       };
+
+      // USDC bond is mandatory: a camera that can't lock escrow never
+      // becomes "enrolled", regardless of CMOS/PUF success.
+      let lock;
+      try {
+        lock = await lockCameraEscrow({
+          cameraId: camera.id,
+          warehouseId: camera.warehouse_id,
+          supplierId: camera.supplier_id,
+          label: camera.label,
+        });
+      } catch (err) {
+        console.error("camera escrow lock failed", err);
+        await supabase
+          .from("cameras")
+          .update({ enrollment_status: "failed", cmos_account: cmosAccount })
+          .eq("id", camera.id);
+        res.status(502).json({
+          error: "escrow_lock_failed",
+          detail: err instanceof Error ? err.message : "unknown",
+        });
+        return;
+      }
+
       const { data: enrolled } = await supabase
         .from("cameras")
-        .update({ enrollment_status: "enrolled", cmos_account: cmosAccount })
+        .update({
+          enrollment_status: "enrolled",
+          cmos_account: cmosAccount,
+          escrow_status: "locked",
+          escrow_amount: lock.amount,
+          escrow_token_id: lock.tokenId,
+          escrow_account_id: lock.escrowAccountId,
+          escrow_tx_id: lock.transactionId,
+          escrow_hashscan_url: lock.hashscanUrl,
+          escrow_locked_at: new Date().toISOString(),
+        })
         .eq("id", camera.id)
-        .select(
-          "id, warehouse_id, supplier_id, label, host, enrollment_status, cmos_account, created_at",
-        )
+        .select(ESCROW_CAMERA_COLUMNS)
         .single();
       res.status(201).json(enrolled ?? camera);
       return;
@@ -248,7 +297,7 @@ cameraRouter.get("/", async (req: AuthedRequest, res) => {
   const { data, error } = await supabase
     .from("cameras")
     .select(
-      "id, warehouse_id, supplier_id, label, host, enrollment_status, cmos_account, is_fake, fraud_detected_at, attest_locked_at, attest_locked_by, created_at, warehouses(name, location)",
+      "id, warehouse_id, supplier_id, label, host, enrollment_status, cmos_account, is_fake, fraud_detected_at, attest_locked_at, attest_locked_by, escrow_status, escrow_amount, escrow_token_id, escrow_account_id, escrow_tx_id, escrow_hashscan_url, escrow_locked_at, escrow_forfeited_at, escrow_slash_tx_id, escrow_slash_hashscan_url, created_at, warehouses(name, location)",
     )
     .eq("supplier_id", req.user!.id)
     .order("created_at", { ascending: false });
@@ -282,7 +331,7 @@ cameraRouter.post(
     const { data: camera } = await supabase
       .from("cameras")
       .select(
-        "id, supplier_id, warehouse_id, label, host, username, password, cmos_account, enrollment_status, is_fake",
+        "id, supplier_id, warehouse_id, label, host, username, password, cmos_account, enrollment_status, is_fake, escrow_status",
       )
       .eq("id", req.params.id)
       .eq("supplier_id", req.user!.id)
@@ -309,3 +358,72 @@ cameraRouter.post(
     }
   },
 );
+
+// USDC bond is mandatory for attestation. Locks (or relocks) it for a camera
+// that has none — after a CRE SLASH forfeiture, or a legacy camera enrolled
+// before escrow was mandatory. Clears the fraud flag once locked.
+cameraRouter.post("/:id/restake", async (req: AuthedRequest, res) => {
+  if (req.user!.role !== "supplier") {
+    res.status(403).json({ error: "supplier_only" });
+    return;
+  }
+
+  const { data: camera } = await supabase
+    .from("cameras")
+    .select("id, warehouse_id, supplier_id, label, escrow_status")
+    .eq("id", req.params.id)
+    .eq("supplier_id", req.user!.id)
+    .maybeSingle();
+
+  if (!camera) {
+    res.status(404).json({ error: "camera_not_found" });
+    return;
+  }
+
+  if (camera.escrow_status === "locked") {
+    res.status(400).json({
+      error: "already_locked",
+      detail: "This camera already has an active USDC bond.",
+    });
+    return;
+  }
+
+  if (!escrowConfigured()) {
+    res.status(503).json({ error: "escrow_not_configured" });
+    return;
+  }
+
+  try {
+    const lock = await lockCameraEscrow({
+      cameraId: camera.id,
+      warehouseId: camera.warehouse_id,
+      supplierId: camera.supplier_id,
+      label: camera.label,
+    });
+
+    const { data: updated } = await supabase
+      .from("cameras")
+      .update({
+        escrow_status: "locked",
+        escrow_amount: lock.amount,
+        escrow_token_id: lock.tokenId,
+        escrow_account_id: lock.escrowAccountId,
+        escrow_tx_id: lock.transactionId,
+        escrow_hashscan_url: lock.hashscanUrl,
+        escrow_locked_at: new Date().toISOString(),
+        is_fake: false,
+        fraud_detected_at: null,
+      })
+      .eq("id", camera.id)
+      .select(ESCROW_CAMERA_COLUMNS)
+      .single();
+
+    res.status(200).json(updated ?? camera);
+  } catch (err) {
+    console.error("camera escrow restake failed", err);
+    res.status(502).json({
+      error: "restake_failed",
+      detail: err instanceof Error ? err.message : "unknown",
+    });
+  }
+});

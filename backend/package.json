@@ -15,6 +15,7 @@
     "seed:two-warehouses": "tsx scripts/seed-two-warehouses.ts",
     "setup:hedera": "tsx scripts/setup-hedera-onchain.ts",
     "setup:hcs": "tsx scripts/wait-faucet-and-setup-hcs.ts",
+    "setup:escrow": "tsx scripts/setup-escrow.ts",
     "test:onchain": "vitest run src/services/onchain.integration.test.ts"
   },
   "dependencies": {

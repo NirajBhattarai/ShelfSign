@@ -18,6 +18,7 @@ export interface CameraForAttest {
   label?: string | null;
   warehouse_id?: string | null;
   is_fake?: boolean | null;
+  escrow_status?: "locked" | "released" | "forfeited" | null;
 }
 
 /** Stale lock older than this is treated as abandoned (crash / tab close). */
@@ -240,6 +241,20 @@ async function runFullAttestationLocked(
     throw Object.assign(new Error("camera_not_enrolled"), {
       status: 409,
       detail: "Camera must be CMOS/PUF enrolled before attestation.",
+    });
+  }
+
+  if (camera.escrow_status !== "locked") {
+    // USDC bond is mandatory — covers a slashed bond (forfeited) and a
+    // camera that was never staked at all (null/released, e.g. pre-mandatory
+    // legacy rows). Either way, no active lock means no attestation.
+    throw Object.assign(new Error("escrow_required"), {
+      status: 402,
+      detail:
+        camera.escrow_status === "forfeited"
+          ? "This camera's USDC bond was slashed for fraud. The supplier must restake escrow before attestation can resume."
+          : "This camera has no active USDC bond. The supplier must stake escrow before attestation can run.",
+      isFake: camera.escrow_status === "forfeited",
     });
   }
 

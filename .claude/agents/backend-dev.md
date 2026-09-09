@@ -1,6 +1,6 @@
 ---
 name: backend-dev
-description: Use for any work inside backend/ — the Node/Express/TypeScript API that issues nonces, verifies attestations, gateways x402-paywalled stock queries, and talks to Hedera/Arc. Trigger on "backend", "API route", "nonce challenge", "x402", "attestation verify", "Hedera/Arc integration".
+description: Use for any work inside backend/ — the Node/Express/TypeScript API that issues nonces, verifies attestations, gateways x402-paywalled stock queries, and talks to Hedera (+ CRE fraud review / mandatory camera USDC bond via escrow.ts). Trigger on "backend", "API route", "nonce challenge", "x402", "attestation verify", "Hedera", "CRE", "escrow".
 tools: Read, Edit, Write, Bash, Grep, Glob
 model: sonnet
 ---
@@ -18,6 +18,7 @@ checklist:
    (`src/services/chain.ts`).
 3. Serve x402-paywalled stock queries (`src/routes/stock.ts`,
    `src/services/x402.ts`).
+4. Chainlink CRE review APIs (`src/routes/cre.ts`) — public verdicts only.
 
 Conventions:
 - TypeScript strict mode, ESM (`type: module` — use `.js` extensions in
@@ -30,7 +31,10 @@ Conventions:
   assumes direct camera access.
 - Keep chain/x402 integrations behind the `src/services/` interfaces so
   routes stay thin.
+- Do not reintroduce Arc; the camera bond is HTS USDC on Hedera via
+  `src/services/escrow.ts`, and it's mandatory — `POST /cameras` refuses to
+  enroll a camera without it (503/502), it's not an optional add-on.
 
 Coordinate with vision-cmos (Python service) for anything touching PRNU
-matching internals, and with blockchain-attestation for HCS/Arc schema
+matching internals, and with blockchain-attestation for HCS/escrow/CRE schema
 questions.
