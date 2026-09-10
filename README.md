@@ -24,6 +24,14 @@ Buyers cannot reliably see real supplier inventory. Spreadsheets and chat update
 
 ---
 
+## Architecture
+
+![ShelfSign architecture: silicon identity + live nonce → attested stock → Hedera HCS + x402 unlock](docs/architecture.png)
+
+End-to-end path: **enroll** (CMOS PUF + HBAR bond) → **challenge** (server nonce / OSD) → **attest** (CMOS match + YOLO) → **publish** (Supabase + Hedera HCS) → **unlock** (buyer x402). Supplier and buyer UIs talk to the Express API; vision (FastAPI / YOLO) drives the camera; Supabase holds state; Hedera carries HCS receipts and the escrow vault.
+
+---
+
 ## Core trust model: CMOS account + nonce
 
 ### CMOS silicon impurity → account signature

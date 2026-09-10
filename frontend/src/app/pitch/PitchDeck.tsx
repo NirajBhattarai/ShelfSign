@@ -340,6 +340,15 @@ function SlideInsight(_p: SlideProps) {
 }
 
 function SlideSolution({ step }: SlideProps) {
+  const flow = [
+    { label: "CAMERA", icon: "camera" },
+    { label: "SILICON ID", icon: "fingerprint" },
+    { label: "LIVE NONCE", icon: "scan-line" },
+    { label: "VISION", icon: "scan-search" },
+    { label: "VERIFY", icon: "badge-check" },
+    { label: "HEDERA HCS", icon: "radio-tower" },
+  ] as const;
+
   return (
     <>
       <Viewfinder />
@@ -350,24 +359,26 @@ function SlideSolution({ step }: SlideProps) {
         </h2>
         <div className="promise-row">
           <Frag show={step > 0} className="glow-chip">
+            <img src={`${A}/icons/camera.svg`} alt="" aria-hidden />
             THIS CAMERA
           </Frag>
           <Frag show={step > 1} className="glow-chip">
+            <img src={`${A}/icons/radio.svg`} alt="" aria-hidden />
             RIGHT NOW
           </Frag>
         </div>
         <div className="flow enter-up d3">
-          <span className="node">CAMERA</span>
-          <span className="arr">→</span>
-          <span className="node">SILICON ID</span>
-          <span className="arr">→</span>
-          <span className="node">LIVE NONCE</span>
-          <span className="arr">→</span>
-          <span className="node">VISION</span>
-          <span className="arr">→</span>
-          <span className="node">VERIFY</span>
-          <span className="arr">→</span>
-          <span className="node">HEDERA HCS</span>
+          {flow.map((n, i) => (
+            <span key={n.label} className="flow-item">
+              {i > 0 ? <span className="arr">→</span> : null}
+              <span className="node">
+                <span className="node-ico" aria-hidden>
+                  <img src={`${A}/icons/${n.icon}.svg`} alt="" />
+                </span>
+                {n.label}
+              </span>
+            </span>
+          ))}
         </div>
         <div className="solution-media enter-scale d4">
           <img

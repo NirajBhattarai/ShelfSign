@@ -820,6 +820,17 @@ body {
   box-shadow: 0 0 24px rgba(30, 107, 255, 0.12);
   position: relative;
   overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.glow-chip img {
+  width: 1.15em;
+  height: 1.15em;
+  display: block;
+  flex-shrink: 0;
+  filter: invert(36%) sepia(98%) saturate(1800%) hue-rotate(205deg)
+    brightness(98%) contrast(104%);
 }
 .glow-chip::after {
   content: "";
@@ -852,14 +863,39 @@ body {
   align-items: center;
   gap: 8px;
 }
+.flow-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
 .flow .node {
   font-family: "IBM Plex Mono", monospace;
   font-size: 0.34em;
   letter-spacing: 0.1em;
-  padding: 11px 14px;
+  padding: 10px 14px;
   background: var(--surface);
   border: 1px solid var(--hairline);
   color: var(--paper);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.flow .node-ico {
+  width: 1.55em;
+  height: 1.55em;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  background: var(--warm-glow);
+  border: 1px solid rgba(30, 107, 255, 0.28);
+}
+.flow .node-ico img {
+  width: 0.95em;
+  height: 0.95em;
+  display: block;
+  filter: invert(36%) sepia(98%) saturate(1800%) hue-rotate(205deg)
+    brightness(98%) contrast(104%);
 }
 .flow .arr {
   color: var(--copper);
