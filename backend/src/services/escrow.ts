@@ -309,7 +309,7 @@ export async function forfeitCameraEscrow(input: {
     if (hcsConfigured()) {
       try {
         await publishCameraEscrowToHcs({
-          action: "forfeit",
+          action: "slash",
           cameraId: input.cameraId,
           warehouseId: input.warehouseId,
           supplierId: input.supplierId,

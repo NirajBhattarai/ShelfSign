@@ -28,6 +28,8 @@ Buyers cannot reliably see real supplier inventory. Spreadsheets and chat update
 
 ![ShelfSign architecture: silicon identity + live nonce → attested stock → Hedera HCS + x402 unlock](docs/architecture.png)
 
+Fraud path (live): CMOS/synthetic fail → `slashCameraForFraud()` → `is_fake` + bond forfeited → `POST /cameras/:id/restake` clears fraud and turns attestation back on.
+
 End-to-end path: **enroll** (CMOS PUF + HBAR bond) → **challenge** (server nonce / OSD) → **attest** (CMOS match + YOLO) → **publish** (Supabase + Hedera HCS) → **unlock** (buyer x402). Supplier and buyer UIs talk to the Express API; vision (FastAPI / YOLO) drives the camera; Supabase holds state; Hedera carries HCS receipts and the escrow vault.
 
 ---
@@ -49,22 +51,18 @@ The hardware root: _the signature is tied to the physical sensor, not just a sof
 Replay of yesterday’s full shelves must fail.
 
 ```
-ShelfSign server          Warehouse agent + camera
+ShelfSign server / vision     Hikvision (ISAPI) camera
       |                              |
       |---- challenge(nonce) ------->|
-      |                              | capture frame
-      |                              | bind nonce (overlay / HMAC)
-      |                              | check CMOS fingerprint
-      |                              | vision → stock
-      |<--- attestation + sig -------|
-      | verify: nonce fresh          |
-      |         CMOS match           |
-      |         image hash           |
-      |         signature            |
-      | publish                       |
+      |                              | OSD burns nonce into frame
+      |                              | capture JPEG
+      |<--- frame + CMOS witness ----|
+      | OCR nonce · PUF / PRNU       |
+      | YOLO → stock                 |
+      | verify + HCS publish         |
 ```
 
-If the warehouse can’t return a fingerprint-matching frame for the **current nonce** → treat as offline / no live data.
+If the camera can’t return a fingerprint-matching frame for the **current nonce** → treat as offline / no live data.
 
 ---
 
@@ -75,7 +73,7 @@ Enroll camera CMOS impurity fingerprint → camera account identity
        ↓
 Server issues attestable nonce
        ↓
-Live snapshot (Hikvision / RTSP / local agent)
+Live snapshot (Hikvision ISAPI via backend + vision-service)
        ↓
 Verify CMOS fingerprint == enrolled account
        ↓
@@ -125,10 +123,9 @@ Checkboxes mark what is done in the repo today. Unchecked items are still open.
 
 - [x] Dashboard overview (order + warehouse KPIs)
 - [x] Warehouses — create, categories, photo
-- [x] Cameras — register (label only; creds from DB), enrollment status, live stream
+- [x] Cameras — register (label + host; ISAPI creds in Supabase), enrollment status, live stream
 - [x] Incoming orders — list, filter, search
 - [x] Order detail — confirm / fulfill / cancel + status progress
-- [ ] Local warehouse agent (credentials stay on LAN)
 - [x] CMOS/PUF enroll + SiliconWitness challenge-response (Hikvision ISAPI)
 - [x] Supplier attest wizard (nonce → SiliconWitness challenge → YOLO counts)
 - [x] `POST /cameras/:id/attest` server-side verification (not client-trusted flags)
@@ -188,45 +185,44 @@ Checkboxes mark what is done in the repo today. Unchecked items are still open.
 
 ## Example attestation
 
+HCS message type `shelfsign.attestation.v1` (see `publishAttestationToHcs`):
+
 ```json
 {
-  "supplier": "0x…",
-  "warehouse": "ktm-01",
-  "cameraAccount": "cam_cmos_0xabc…",
-  "cmosFingerprintHash": "0x…",
+  "type": "shelfsign.attestation.v1",
+  "attestationId": "…",
+  "cameraId": "…",
+  "supplierId": "…",
+  "cameraAccount": "0x…",
   "nonce": "0xdeadbeef…",
-  "nonceIssuedAt": 1788600000,
-  "capturedAt": 1788600005,
   "imageHash": "0x…",
   "model": "yolov8n-stock-v1",
   "modelHash": "0x…",
-  "items": [
-    { "sku": "RICE-25KG", "count": 42, "confidence": 0.91, "shelf": "A3" }
-  ]
+  "cmosScore": 0.97,
+  "detectionCount": 12,
+  "itemSkus": ["RICE-25KG"],
+  "capturedAt": "2026-09-10T12:00:00.000Z"
 }
 ```
 
 Verification checklist before accepting stock as live:
 
 1. `nonce` is one we issued and not expired / not reused
-2. `cmosFingerprintHash` matches enrolled camera account
-3. Frame is bound to `nonce` (watermark or `HMAC(frame, nonce)`)
+2. `cameraAccount` matches the enrolled CMOS/PUF camera account (challenge score OK)
+3. Frame is bound to `nonce` (camera OSD burns it into the JPEG; OCR must read it back)
 4. `imageHash` matches the captured frame
-5. Signature validates under camera / supplier account
+5. Signature validates under the camera account
 6. Attestation is published to Hedera HCS (topic + sequence)
 
 ---
 
 ## Camera access
 
-Prefer a **local warehouse agent**:
+ShelfSign talks to cameras **directly** over the LAN (or lab subnet):
 
-- Runs on their LAN next to the camera
-- Holds camera credentials locally
-- Receives nonce challenges from ShelfSign
-- Returns only attestations (+ image hash; frame stays on LAN unless streamed)
-
-Buyers never get RTSP. The cloud never needs the warehouse’s camera admin password.
+- Supplier registers host + ISAPI credentials; they are stored in Supabase (`cameras`)
+- Backend + vision-service use those creds for enroll, OSD challenge, stream proxy, and YOLO
+- Buyers never get RTSP or camera admin passwords — only attested stock via the API / x402
 
 **Lab Hikvision (`192.168.50.64`) unreachable from a Mac on `192.168.100.x`?**  
 That is a LAN alias / subnet issue, not CMOS or auth. See **[docs/hikvision-lan.md](docs/hikvision-lan.md)** for diagnosis and the `en0` `192.168.50.10` fix.
@@ -239,7 +235,7 @@ That is a LAN alias / subnet issue, not CMOS or auth. See **[docs/hikvision-lan.
 - **Backend:** Node / Express (TypeScript) — nonce, attestations, cameras, warehouses, orders, HCS publish, x402
 - **Vision:** Python FastAPI — YOLO stock detection + CMOS / PUF (SiliconWitness-style) fingerprinting
 - **Data:** Supabase (Postgres + RLS)
-- **Chain (live):** Hedera testnet — HCS attestation log + x402 pay-per-query (HTS USDC via Blocky402)
+- **Chain (live):** Hedera testnet — HCS attestation log + x402 pay-per-query (**0.01 HBAR** via Blocky402)
 - **Bond lifecycle (live):** lock on camera enroll → fraud detection forfeits bond → attestation blocked → supplier `POST /cameras/:id/restake` relocks 10 HBAR and clears the flag
 
 ---
@@ -360,7 +356,7 @@ cd backend && npm run seed:two-warehouses
 
 - Not freelance escrow or remittance
 - Not a claim that vision counts are perfect inventory truth
-- Not requiring buyers (or the cloud) to hold the camera password
+- Not exposing camera RTSP or admin passwords to buyers
 - Not a self-funded supplier bond — the lock/restake HBAR comes from a
   platform-controlled funder account (`ESCROW_FUNDER_ID`, defaults to the
   x402 agent wallet), not from a Hedera account the supplier owns. The escrow

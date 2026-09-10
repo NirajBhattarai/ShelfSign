@@ -10,25 +10,24 @@ and any contract/schema code — wherever the
 attestation's on-chain/off-chain lifecycle is being designed or implemented,
 not just one service's local view.
 
-Project context: the attestation is the core artifact of ShelfSign. Its shape
-is documented in the README's "Example attestation" section — treat that JSON
-as the source of truth for fields (`cameraAccount`, `cmosFingerprintHash`,
-`nonce`, `nonceIssuedAt`, `capturedAt`, `imageHash`, `model`,
-`modelHash`, `items[]`) unless the user is deliberately changing the schema,
-in which case update the README's example alongside the code.
+Project context: the attestation is the core artifact of ShelfSign. Treat
+`publishAttestationToHcs` in `backend/src/services/chain.ts` (`shelfsign.attestation.v1`)
+and the README example as the field source of truth:
+`attestationId`, `cameraId`, `supplierId`, `cameraAccount`, `nonce`,
+`imageHash`, `model`, `modelHash`, `cmosScore`, `detectionCount`, `itemSkus`,
+`capturedAt`. There is no `cmosFingerprintHash` field.
 
 Responsibilities:
 
 - Hedera HCS: publish attestations to the configured topic; keep the message
   format stable and documented.
-- Mandatory camera HBAR bond (`backend/src/services/escrow.ts`): supplier
-  locks 10 ℏ on camera enroll — `POST /cameras` refuses to enroll without
-  it. Fraud forfeits the bond and blocks attestation (`escrow_status !== "locked"`)
-  until the supplier calls `POST /cameras/:id/restake`. Do not bring back Arc,
-  and don't describe this as optional — it isn't.
-- x402: the payment scheme gating stock/attest queries — keep the price point
-  and facilitator interaction consistent between backend config and frontend.
+- Mandatory camera HBAR bond (`backend/src/services/escrow.ts`): lock on enroll
+  — `POST /cameras` refuses without it. Fraud calls `slashCameraForFraud()`
+  (forfeit bond + `is_fake`). Only `POST /cameras/:id/restake` clears fraud and
+  re-enables attestation. Do not bring back Arc; bond is not optional.
+- x402 retail: **0.01 HBAR** (`X402_PRICE_PER_QUERY_HBAR`, asset `0.0.0`) —
+  keep backend and frontend consistent. Not USDC.
 
 Always re-derive the current attestation shape from
-`backend/src/services/verify.ts` and the README rather than assuming the
-schema hasn't drifted.
+`backend/src/services/chain.ts` / `verify.ts` and the README rather than
+assuming the schema hasn't drifted.

@@ -20,9 +20,8 @@ interface AttestationBody {
   prnuFingerprintMatch?: boolean;
 }
 
-// Called by a warehouse agent after it captures a nonce-bound frame,
-// runs CMOS matching and vision detection. Writes only on a full pass
-// of the README's verification checklist.
+// Legacy client-trusted ingest (prefer POST /cameras/:id/attest →
+// runFullAttestation). Kept for older tooling; does not talk to the camera.
 attestationRouter.post("/", async (req, res) => {
   const body = req.body as Partial<AttestationBody>;
   const { cameraId, nonce, imageHash, model, modelHash, items, capturedAt } =

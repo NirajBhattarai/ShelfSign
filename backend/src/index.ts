@@ -18,7 +18,7 @@ import { x402Router } from "./routes/x402.js";
 const app = express();
 const port = process.env.PORT ?? 4000;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-// Served from the Next public copy (source of truth after migrating off pitch/index.html)
+// Pitch assets (images/icons) mirrored from the Next public folder
 const pitchDir = path.resolve(__dirname, "../../frontend/public/pitch");
 
 app.use(cors());
@@ -45,7 +45,7 @@ app.get("/pitch/meta", (_req, res) => {
   res.json({
     name: "ShelfSign Pitch",
     path: `${frontend}/pitch`,
-    slides: 11,
+    slides: 10,
     format: "next.js",
     tagline:
       "Camera-backed stock, signed from the silicon — attested with a live nonce.",

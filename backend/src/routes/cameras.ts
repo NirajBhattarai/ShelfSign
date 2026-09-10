@@ -1,7 +1,11 @@
 import { Readable } from "node:stream";
 import { Router } from "express";
 import { requireAuth, type AuthedRequest } from "../middleware/auth.js";
-import { escrowConfigured, lockCameraEscrow } from "../services/escrow.js";
+import {
+  escrowConfigured,
+  lockCameraEscrow,
+  slashCameraForFraud,
+} from "../services/escrow.js";
 import { supabase } from "../services/supabase.js";
 import {
   getDefaultCameraCredentials,
@@ -405,7 +409,8 @@ cameraRouter.post(
 
 // HBAR bond is mandatory for attestation. Locks (or relocks) it for a camera
 // that has none — after a bond slash/forfeiture, or a legacy camera enrolled
-// before escrow was mandatory. Clears the fraud flag once locked.
+// before escrow was mandatory. Clears the fraud flag once locked so
+// attestation can turn back on.
 cameraRouter.post("/:id/restake", async (req: AuthedRequest, res) => {
   if (req.user!.role !== "supplier") {
     res.status(403).json({ error: "supplier_only" });
@@ -414,7 +419,7 @@ cameraRouter.post("/:id/restake", async (req: AuthedRequest, res) => {
 
   const { data: camera } = await supabase
     .from("cameras")
-    .select("id, warehouse_id, supplier_id, label, escrow_status")
+    .select("id, warehouse_id, supplier_id, label, escrow_status, is_fake")
     .eq("id", req.params.id)
     .eq("supplier_id", req.user!.id)
     .maybeSingle();
@@ -424,7 +429,7 @@ cameraRouter.post("/:id/restake", async (req: AuthedRequest, res) => {
     return;
   }
 
-  if (camera.escrow_status === "locked") {
+  if (camera.escrow_status === "locked" && !camera.is_fake) {
     res.status(400).json({
       error: "already_locked",
       detail: "This camera already has an active HBAR bond.",
@@ -438,6 +443,25 @@ cameraRouter.post("/:id/restake", async (req: AuthedRequest, res) => {
   }
 
   try {
+    // Fraud with bond still showing locked (e.g. prior slash tx failed):
+    // finish the slash before accepting a new stake.
+    if (camera.escrow_status === "locked" && camera.is_fake) {
+      await slashCameraForFraud(camera.id);
+      const { data: afterSlash } = await supabase
+        .from("cameras")
+        .select("escrow_status")
+        .eq("id", camera.id)
+        .maybeSingle();
+      if (afterSlash?.escrow_status === "locked") {
+        res.status(502).json({
+          error: "slash_incomplete",
+          detail:
+            "Fraud is flagged but the on-chain bond slash did not complete. Fix escrow config and retry restake.",
+        });
+        return;
+      }
+    }
+
     const lock = await lockCameraEscrow({
       cameraId: camera.id,
       warehouseId: camera.warehouse_id,

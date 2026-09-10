@@ -168,7 +168,7 @@ export async function publishPaymentReceiptToHcs(receipt: {
 }
 
 export async function publishCameraEscrowToHcs(event: {
-  action: "lock" | "slash" | "restake";
+  action: "lock" | "slash" | "restake" | "forfeit";
   cameraId: string;
   warehouseId?: string | null;
   supplierId?: string | null;

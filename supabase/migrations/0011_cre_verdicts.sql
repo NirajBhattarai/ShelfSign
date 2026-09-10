@@ -1,3 +1,5 @@
+-- HISTORICAL: Chainlink CRE confidential fraud reviews (removed in 0015).
+-- Kept so migration history stays applyable; do not reintroduce CRE.
 -- Chainlink CRE confidential fraud reviews (public verdict only; raw risk
 -- payloads stay inside the TEE and are never stored here).
 

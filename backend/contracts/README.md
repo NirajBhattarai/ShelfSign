@@ -71,7 +71,7 @@ Fraud confirmed → `slashCameraForFraud(cameraId)`:
 
 1. Transfer the camera's locked `escrow_amount` from vault → operator account
 2. `cameras.escrow_status = 'forfeited'`, `is_fake = true`, `fraud_detected_at` set
-3. Best-effort HCS message `shelfsign.camera_escrow.v1` (`action: "forfeit"`)
+3. Best-effort HCS message `shelfsign.camera_escrow.v1` (`action: "slash"`)
 
 ## Env
 

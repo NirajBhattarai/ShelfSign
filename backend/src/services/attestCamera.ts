@@ -6,6 +6,7 @@ import {
   getVisionServiceUrl,
 } from "./settings.js";
 import { publishAttestationToHcs, type HcsPublishResult } from "./chain.js";
+import { slashCameraForFraud } from "./escrow.js";
 
 export interface CameraForAttest {
   id: string;
@@ -206,11 +207,10 @@ async function ensurePufEnrollment(
     const detail = await enrollRes.text();
     const synthetic = /synthetic_device|synthetic_replay/i.test(detail || "");
     if (synthetic) {
+      await slashCameraForFraud(camera.id);
       await supabase
         .from("cameras")
         .update({
-          is_fake: true,
-          fraud_detected_at: new Date().toISOString(),
           enrollment_status: "failed",
         })
         .eq("id", camera.id);
@@ -230,8 +230,6 @@ async function ensurePufEnrollment(
     .update({
       cmos_account: cmosAccount,
       enrollment_status: "enrolled",
-      is_fake: false,
-      fraud_detected_at: null,
     })
     .eq("id", camera.id);
 
@@ -285,17 +283,17 @@ async function runFullAttestationLocked(
     });
   }
 
-  if (camera.escrow_status !== "locked") {
+  if (camera.is_fake || camera.escrow_status !== "locked") {
     // HBAR bond is mandatory — covers a slashed bond (forfeited) and a
     // camera that was never staked at all (null/released, e.g. pre-mandatory
-    // legacy rows). Either way, no active lock means no attestation.
+    // legacy rows). Fraud flag stays set until POST /cameras/:id/restake.
+    const forfeited = camera.is_fake || camera.escrow_status === "forfeited";
     throw Object.assign(new Error("escrow_required"), {
       status: 402,
-      detail:
-        camera.escrow_status === "forfeited"
-          ? "This camera's HBAR bond was slashed for fraud. The supplier must restake escrow before attestation can resume."
-          : "This camera has no active HBAR bond. The supplier must stake escrow before attestation can run.",
-      isFake: camera.escrow_status === "forfeited",
+      detail: forfeited
+        ? "This camera's HBAR bond was slashed for fraud. The supplier must restake escrow before attestation can resume."
+        : "This camera has no active HBAR bond. The supplier must stake escrow before attestation can run.",
+      isFake: forfeited,
     });
   }
 
@@ -459,13 +457,7 @@ async function runFullAttestationLocked(
       signingError || "",
     );
     if (isSynthetic) {
-      await supabase
-        .from("cameras")
-        .update({
-          is_fake: true,
-          fraud_detected_at: new Date().toISOString(),
-        })
-        .eq("id", enrolledCamera.id);
+      await slashCameraForFraud(enrolledCamera.id);
       throw Object.assign(new Error("verification_failed"), {
         status: 422,
         reasons: ["synthetic_device"],
@@ -582,13 +574,7 @@ async function runFullAttestationLocked(
     const sensorSwap = prnuAvailable && prnuMatch === false;
     const isFraud = isSynthetic || sensorSwap;
     if (isFraud) {
-      await supabase
-        .from("cameras")
-        .update({
-          is_fake: true,
-          fraud_detected_at: new Date().toISOString(),
-        })
-        .eq("id", enrolledCamera.id);
+      await slashCameraForFraud(enrolledCamera.id);
     }
 
     throw Object.assign(new Error("verification_failed"), {
@@ -606,11 +592,8 @@ async function runFullAttestationLocked(
     });
   }
 
-  // Fresh nonce + PUF match + signature — clear any prior unverified flag.
-  await supabase
-    .from("cameras")
-    .update({ is_fake: false, fraud_detected_at: null })
-    .eq("id", enrolledCamera.id);
+  // Fraud / is_fake is cleared only by POST /cameras/:id/restake (new bond).
+  // A clean attestation must not revive a slashed camera.
 
   await supabase
     .from("attestations")

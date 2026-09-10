@@ -19,7 +19,7 @@ describe("x402", () => {
     process.env.X402_PAY_TO = "0.0.12345";
     process.env.HEDERA_NETWORK = "testnet";
     process.env.X402_ASSET = "0.0.0";
-    process.env.X402_PRICE_PER_QUERY_USDC = "0.01";
+    process.env.X402_PRICE_PER_QUERY_HBAR = "0.01";
     process.env.X402_FACILITATOR_URL = "https://api.testnet.blocky402.com";
   });
 

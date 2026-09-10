@@ -50,10 +50,8 @@ export function clearSessionPayer() {
 export function formatPaymentAmount(requirements: PaymentRequirements): string {
   const amount = Number(requirements.amount);
   if (!Number.isFinite(amount)) return requirements.amount;
-  if (requirements.asset === "0.0.0") {
-    return `${(amount / 100_000_000).toFixed(4)} HBAR`;
-  }
-  return `${(amount / 1_000_000).toFixed(4)} USDC`;
+  // Retail x402 is always native HBAR (tinybars).
+  return `${(amount / 100_000_000).toFixed(4)} HBAR`;
 }
 
 function toBase64Json(value: unknown): string {

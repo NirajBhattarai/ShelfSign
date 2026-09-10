@@ -818,8 +818,7 @@ warehouseRouter.post(
       const result = await runFullAttestation(camera, {
         lockedBy: req.user!.id,
       });
-      // Successful attest clears is_fake in runFullAttestation — don't echo
-      // the stale pre-attest camera row.
+      // Restake clears is_fake; attest no longer does. Echo clean status.
       res.status(201).json({
         cameraId: result.cameraId,
         cameraLabel: result.cameraLabel,

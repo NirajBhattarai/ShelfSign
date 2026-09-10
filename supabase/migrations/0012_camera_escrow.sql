@@ -1,4 +1,5 @@
--- USDC escrow locked on Hedera when a camera is attached/enrolled.
+-- Native HBAR escrow locked on Hedera when a camera is attached/enrolled.
+-- (Originally drafted as USDC/HTS; product uses ESCROW_TOKEN_ID=0.0.0 / HBAR.)
 
 alter table cameras
   add column if not exists escrow_status text
@@ -11,6 +12,6 @@ alter table cameras
   add column if not exists escrow_locked_at timestamptz;
 
 comment on column cameras.escrow_status is
-  'Hedera HTS USDC escrow for this camera: locked on enroll.';
+  'Hedera HBAR escrow for this camera: locked on enroll (token id 0.0.0).';
 comment on column cameras.escrow_amount is
-  'Smallest USDC units (6 decimals) locked in the escrow vault.';
+  'Tinybars locked in the escrow vault (or legacy HTS smallest units if token id != 0.0.0).';

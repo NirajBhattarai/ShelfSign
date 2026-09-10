@@ -43,16 +43,29 @@ function caipNetwork(): string {
     : "hedera:testnet";
 }
 
-/** Tinybars for HBAR, or smallest USDC units (6 decimals) depending on asset. */
+/** Retail price in tinybars — always native HBAR (0.01 ℏ default). */
 export function priceAmount(): string {
-  const usdc = process.env.X402_PRICE_PER_QUERY_USDC ?? "0.01";
-  const asset = process.env.X402_ASSET ?? "0.0.0";
-  if (asset === "0.0.0") {
-    // $0.01 → 0.01 HBAR = 1_000_000 tinybars
-    const hbar = Number(usdc);
-    return String(Math.max(1, Math.round(hbar * 100_000_000)));
+  const hbar = Number(
+    process.env.X402_PRICE_PER_QUERY_HBAR ??
+      process.env.X402_PRICE_PER_QUERY_USDC ?? // legacy env alias
+      "0.01",
+  );
+  if (!Number.isFinite(hbar) || hbar <= 0) {
+    throw new Error("X402_PRICE_PER_QUERY_HBAR must be a positive HBAR amount");
   }
-  return String(Math.max(1, Math.round(Number(usdc) * 1_000_000)));
+  // 1 HBAR = 100_000_000 tinybars
+  return String(Math.max(1, Math.round(hbar * 100_000_000)));
+}
+
+/** Native HBAR only for retail x402 (token id 0.0.0). */
+export function x402Asset(): string {
+  const asset = (process.env.X402_ASSET ?? "0.0.0").trim() || "0.0.0";
+  if (asset !== "0.0.0") {
+    console.warn(
+      `X402_ASSET=${asset} ignored — retail x402 is HBAR-only (0.0.0).`,
+    );
+  }
+  return "0.0.0";
 }
 
 export function getPayTo(): string {
@@ -101,7 +114,7 @@ export async function buildPaymentRequirements(
     amount: priceAmount(),
     payTo: getPayTo(),
     maxTimeoutSeconds: 300,
-    asset: process.env.X402_ASSET ?? "0.0.0",
+    asset: x402Asset(),
     description,
     mimeType: "application/json",
     resource,
