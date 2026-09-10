@@ -196,8 +196,9 @@ export function AttestWizard({
             className="field-error"
             style={{ marginTop: 0, marginBottom: 16 }}
           >
-            Last live attest failed authenticity (Unverified). Edit IP does not
-            change that flag — attest successfully to clear it.
+            This camera is Unverified (is_fake). Point it at a real sensor if
+            needed, then Pay & attest — a successful attest clears Unverified
+            and marks Verified. A failed attest keeps Unverified.
           </div>
         ) : null}
 
@@ -328,7 +329,7 @@ export function AttestWizard({
                 className="btn btn-ghost"
                 style={{ flex: 1 }}
                 onClick={generateNonce}
-                disabled={busy || camera.enrollment_status === "failed"}
+                disabled={busy}
               >
                 {nonce ? "New nonce" : "Generate nonce"}
               </button>
@@ -336,11 +337,13 @@ export function AttestWizard({
                 className="btn btn-primary"
                 style={{ flex: 1 }}
                 onClick={startPayAndAttest}
-                disabled={busy || camera.enrollment_status === "failed"}
+                disabled={busy}
               >
                 {phase === "attesting" || phase === "paying"
                   ? "Pay & attest…"
-                  : "Pay & attest live"}
+                  : camera.is_fake
+                    ? "Pay & attest to verify"
+                    : "Pay & attest live"}
               </button>
             </>
           )}

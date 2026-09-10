@@ -404,8 +404,9 @@ export default function WarehouseDetailClient() {
                     {cam.fraud_detected_at
                       ? ` · ${new Date(cam.fraud_detected_at).toLocaleString()}`
                       : ""}
-                    . Buyers see Unverified after a failed live attest. Edit IP
-                    does not change this flag — a successful attest clears it.
+                    . Buyers see Unverified. Edit IP does not clear this — use{" "}
+                    <strong>Pay & attest</strong> on a real sensor to verify and
+                    set the flag back to Verified.
                   </div>
                 ) : null}
                 {cam.escrow_status === "locked" && (
@@ -479,31 +480,38 @@ export default function WarehouseDetailClient() {
                           : "Stake 10 HBAR"}
                     </button>
                   )}
-                {cam.enrollment_status !== "failed" && (
-                  <button
-                    className="btn btn-primary"
-                    style={{ padding: "8px 12px" }}
-                    disabled={attestBusy || cam.escrow_status !== "locked"}
-                    title={
-                      cam.escrow_status === "forfeited"
-                        ? "Bond was slashed — restake before attesting"
-                        : cam.escrow_status !== "locked"
-                          ? "No HBAR bond on file — stake before attesting"
-                          : attestBusy
-                            ? "Another attestation is running on this camera"
-                            : cam.enrollment_status === "pending"
-                              ? "No PUF enrollment on file — this will re-enroll against the current host first"
+                {/* Always allow attest when bonded — including Unverified /
+                    enrollment_failed cameras so the supplier can re-verify
+                    after pointing IP at a real sensor. */}
+                <button
+                  className="btn btn-primary"
+                  style={{ padding: "8px 12px" }}
+                  disabled={attestBusy || cam.escrow_status !== "locked"}
+                  title={
+                    cam.escrow_status === "forfeited"
+                      ? "Bond was slashed — restake before attesting"
+                      : cam.escrow_status !== "locked"
+                        ? "No HBAR bond on file — stake before attesting"
+                        : attestBusy
+                          ? "Another attestation is running on this camera"
+                          : cam.is_fake
+                            ? "Unverified — successful attest clears the flag"
+                            : cam.enrollment_status === "pending" ||
+                                cam.enrollment_status === "failed"
+                              ? "Will re-enroll against the current host, then attest"
                               : undefined
-                    }
-                    onClick={() => setAttestingCamera(cam)}
-                  >
-                    {attestBusy
-                      ? "Attesting…"
-                      : cam.enrollment_status === "pending"
+                  }
+                  onClick={() => setAttestingCamera(cam)}
+                >
+                  {attestBusy
+                    ? "Attesting…"
+                    : cam.is_fake
+                      ? "Pay & attest to verify"
+                      : cam.enrollment_status === "pending" ||
+                          cam.enrollment_status === "failed"
                         ? "Re-enroll & attest"
                         : "Pay & attest"}
-                  </button>
-                )}
+                </button>
                 <button
                   className="link-btn"
                   style={{ marginTop: 0 }}

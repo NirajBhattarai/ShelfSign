@@ -12,6 +12,7 @@ import {
 import { signExactPaymentHeaderWithSigner } from "@/lib/x402Client";
 import { useHederaWallet } from "@/lib/HederaWalletContext";
 import { PayUnlockDialog } from "@/components/PayUnlockDialog";
+import { FraudFlag } from "@/components/FraudFlag";
 import {
   Badge,
   DetailRow,
@@ -498,6 +499,12 @@ export default function StockDetailPage() {
               </span>
             ) : null}
           </div>
+
+          {cameraUnverified ? (
+            <div style={{ marginBottom: 20 }}>
+              <FraudFlag />
+            </div>
+          ) : null}
 
           <div className="product-detail-figures">
             <div>
