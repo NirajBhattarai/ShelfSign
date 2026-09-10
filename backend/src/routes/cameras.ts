@@ -424,3 +424,109 @@ cameraRouter.post("/:id/restake", async (req: AuthedRequest, res) => {
     });
   }
 });
+
+// Update a camera's own host/username/password (e.g. after a fraud flag —
+// pointing a supplier's registered camera back at the correct device, or
+// fixing wrong credentials). Clears the PUF enrollment: the previous
+// cmos_account/coordinates belong to whatever device the OLD host was, and
+// are meaningless (or actively wrong) for a different one — the next
+// attest/verify call re-enrolls automatically via ensurePufEnrollment().
+// Does NOT touch is_fake/escrow_status; those clear via a fresh successful
+// attest or POST /:id/restake, so a credential fix alone can't silently
+// restore "verified" without proving the camera actually works now.
+cameraRouter.put("/:id", async (req: AuthedRequest, res) => {
+  if (req.user!.role !== "supplier") {
+    res.status(403).json({ error: "supplier_only" });
+    return;
+  }
+
+  const { host, username, password } = (req.body ?? {}) as {
+    host?: string;
+    username?: string;
+    password?: string;
+  };
+  if (!host?.trim() || !username?.trim() || !password?.trim()) {
+    res.status(400).json({ error: "missing_fields" });
+    return;
+  }
+
+  const { data: camera } = await supabase
+    .from("cameras")
+    .select("id")
+    .eq("id", req.params.id)
+    .eq("supplier_id", req.user!.id)
+    .maybeSingle();
+
+  if (!camera) {
+    res.status(404).json({ error: "camera_not_found" });
+    return;
+  }
+
+  const hostTrim = host.trim();
+  const userTrim = username.trim();
+  const passTrim = password.trim();
+
+  // Probe the new host so Edit IP → Fake Cam stub is flagged immediately,
+  // and Edit IP → real Hikvision can clear a prior synthetic flag only after
+  // deviceInfo looks physical (full trust still requires a successful attest).
+  let syntheticHost = false;
+  try {
+    const visionUrl = await getVisionServiceUrl();
+    const probeRes = await fetch(`${visionUrl}/cmos/device-check`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        host: hostTrim,
+        username: userTrim,
+        password: passTrim,
+      }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (probeRes.ok) {
+      const probe = (await probeRes.json()) as { synthetic?: boolean };
+      syntheticHost = Boolean(probe.synthetic);
+    }
+  } catch (err) {
+    console.error("camera device-check failed", err);
+  }
+
+  const { data: updated, error } = await supabase
+    .from("cameras")
+    .update({
+      host: hostTrim,
+      username: userTrim,
+      password: passTrim,
+      cmos_account: null,
+      enrollment_status: syntheticHost ? "failed" : "pending",
+      ...(syntheticHost
+        ? {
+            is_fake: true,
+            fraud_detected_at: new Date().toISOString(),
+          }
+        : {}),
+    })
+    .eq("id", camera.id)
+    .select(ESCROW_CAMERA_COLUMNS)
+    .single();
+
+  if (error || !updated) {
+    res.status(500).json({ error: "camera_update_failed" });
+    return;
+  }
+
+  // Best-effort: forget vision-service's on-disk enrollment for the OLD
+  // device. Without this, ensurePufEnrollment() finds a still-enrolled
+  // record under this camera id and re-syncs the DB to that stale account
+  // instead of re-enrolling against the new host — silently undoing the fix.
+  try {
+    const visionUrl = await getVisionServiceUrl();
+    await fetch(`${visionUrl}/cmos/enrollment/${camera.id}`, {
+      method: "DELETE",
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch (err) {
+    console.error("vision-service enrollment forget failed", err);
+  }
+
+  res.status(200).json(updated);
+});

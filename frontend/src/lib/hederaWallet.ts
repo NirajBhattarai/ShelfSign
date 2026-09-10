@@ -86,11 +86,18 @@ async function getConnector(): Promise<ConnectorBundle> {
 
   if (!connectorPromise) {
     connectorPromise = (async () => {
-      const [{ DAppConnector, HederaJsonRpcMethod, HederaSessionEvent, HederaChainId }, { LedgerId }] =
-        await Promise.all([
-          import("@hashgraph/hedera-wallet-connect"),
-          import("@hiero-ledger/sdk"),
-        ]);
+      const [
+        {
+          DAppConnector,
+          HederaJsonRpcMethod,
+          HederaSessionEvent,
+          HederaChainId,
+        },
+        { LedgerId },
+      ] = await Promise.all([
+        import("@hashgraph/hedera-wallet-connect"),
+        import("@hiero-ledger/sdk"),
+      ]);
 
       const isMainnet = process.env.NEXT_PUBLIC_HEDERA_NETWORK === "mainnet";
       const ledger = isMainnet ? LedgerId.MAINNET : LedgerId.TESTNET;
@@ -235,7 +242,9 @@ export async function createWalletConnectClientSigner(
         tx.addTokenTransfer(tokenId, payer, -amount);
         tx.addTokenTransfer(tokenId, payTo, amount);
       }
-      tx.setTransactionId(TransactionId.generate(AccountId.fromString(feePayer)));
+      tx.setTransactionId(
+        TransactionId.generate(AccountId.fromString(feePayer)),
+      );
 
       // Match @x402/hedera local signer: freeze against testnet/mainnet nodes
       // before asking the wallet for the payer signature.

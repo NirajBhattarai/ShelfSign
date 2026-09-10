@@ -136,7 +136,7 @@ class ISAPIClient:
         path = f"/ISAPI/Streaming/channels/{ch}/picture"
         attempts = 8
         last_err: Optional[ISAPIError] = None
-        with camera_snapshot_lock():
+        with camera_snapshot_lock(host=self.host):
             for i in range(attempts):
                 r = self.get(path)
                 if r.ok:

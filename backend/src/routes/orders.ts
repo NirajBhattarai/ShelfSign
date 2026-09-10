@@ -139,7 +139,9 @@ orderRouter.post("/", async (req: AuthedRequest, res) => {
   }
   const { data: stockRows, error: stockError } = await stockQuery;
   if (stockError) {
-    res.status(500).json({ error: "stock_query_failed", detail: stockError.message });
+    res
+      .status(500)
+      .json({ error: "stock_query_failed", detail: stockError.message });
     return;
   }
   const available = (stockRows ?? []).reduce(

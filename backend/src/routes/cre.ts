@@ -223,7 +223,9 @@ creRouter.post("/internal/verdicts", requireCreBearer, async (req, res) => {
   const reviewId = String(body.reviewId ?? "").trim();
   const attestationId = String(body.attestationId ?? "").trim();
   const cameraId = String(body.cameraId ?? "").trim();
-  const verdict = String(body.verdict ?? "").trim().toUpperCase();
+  const verdict = String(body.verdict ?? "")
+    .trim()
+    .toUpperCase();
   const score = Number(body.score);
   const reasonHash = String(body.reasonHash ?? "").trim();
   const source = String(body.source ?? "cre").trim();

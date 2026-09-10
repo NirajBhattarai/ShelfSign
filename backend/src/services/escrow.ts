@@ -94,8 +94,8 @@ export function escrowAmountUnits(): number {
 export function escrowConfigured(): boolean {
   return Boolean(
     process.env.HEDERA_OPERATOR_ID?.trim() &&
-    process.env.HEDERA_OPERATOR_KEY?.trim() &&
-    process.env.HEDERA_ESCROW_ACCOUNT_ID?.trim(),
+      process.env.HEDERA_OPERATOR_KEY?.trim() &&
+      process.env.HEDERA_ESCROW_ACCOUNT_ID?.trim(),
   );
 }
 

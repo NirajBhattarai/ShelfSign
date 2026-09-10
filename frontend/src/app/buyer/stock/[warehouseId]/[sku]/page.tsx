@@ -2,29 +2,49 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import {
-  apiGet,
-  apiGetPaid,
-  apiPost,
-  apiPostPaid,
-  type X402Challenge,
-} from "@/lib/api";
+import { apiGet, apiGetPaid, apiPost, type X402Challenge } from "@/lib/api";
 import { signExactPaymentHeaderWithSigner } from "@/lib/x402Client";
 import { useHederaWallet } from "@/lib/HederaWalletContext";
 import { PayUnlockDialog } from "@/components/PayUnlockDialog";
 import {
-  ViewAttestationModal,
-  type LiveCountResult,
-} from "@/components/ViewAttestationModal";
-import { FraudFlag } from "@/components/FraudFlag";
-import { Badge, DetailRow, EmptyState, PageHeader } from "@/components/ui";
-import { type StockRow } from "../../../BuyerDataContext";
+  Badge,
+  DetailRow,
+  EmptyState,
+  Overlay,
+  PageHeader,
+} from "@/components/ui";
+import { type StockItem, type StockRow } from "../../../BuyerDataContext";
 import { PlaceOrderDialog } from "../../../PlaceOrderDialog";
 
 interface TrustCheck {
   title: string;
   body: string;
   ok: boolean;
+}
+
+interface LiveCountResult {
+  cameraId: string;
+  cameraLabel: string | null;
+  items: StockItem[];
+  totalUnits: number;
+  detectionCount: number;
+  model: string;
+  engine: string;
+  imageHash: string;
+  countedAt: string;
+  nonce?: string;
+  cmosScore?: number;
+  attestationId?: string | null;
+  fullAttestation?: boolean;
+  steps?: {
+    challenge?: {
+      match?: boolean;
+      osdMatch?: boolean;
+      osdDecoded?: string;
+      correctedBitErrors?: number;
+    };
+    cmosMatch?: { match?: boolean; score?: number };
+  };
 }
 
 interface StockDetailResponse {
@@ -36,16 +56,9 @@ interface StockDetailResponse {
     model?: string | null;
     items: StockRow["item"][];
     cmos_score?: number | null;
-    prnu_score?: number | null;
     detection_count?: number | null;
   };
   liveStreamUrl: string | null;
-  camera?: {
-    id: string;
-    label: string | null;
-    isFake: boolean;
-    fraudDetectedAt: string | null;
-  } | null;
   totalUnits?: number;
   detectedTotal?: number;
   trustChecks: TrustCheck[];
@@ -99,16 +112,6 @@ export default function StockDetailPage() {
     item: { sku: string; count: number; detectedCount?: number };
   } | null>(null);
   const [payError, setPayError] = useState<string | null>(null);
-  /** "unlock" = stock query; "attest" = live camera proof refresh */
-  const [payPurpose, setPayPurpose] = useState<"unlock" | "attest">("unlock");
-  const [creVerdict, setCreVerdict] = useState<{
-    verdict: string;
-    score: number;
-    reason_hash: string;
-    source: string;
-  } | null>(null);
-  const [creBusy, setCreBusy] = useState(false);
-  const [creError, setCreError] = useState<string | null>(null);
   const { getClientSigner } = useHederaWallet();
 
   useEffect(() => {
@@ -143,7 +146,6 @@ export default function StockDetailPage() {
   async function openPayDialog() {
     setPayError(null);
     setPaying(true);
-    setPayPurpose("unlock");
     try {
       const challenge = await apiGet<X402Challenge>(
         `/stock/${warehouseId}/${encodeURIComponent(sku)}/challenge`,
@@ -159,67 +161,12 @@ export default function StockDetailPage() {
     }
   }
 
-  async function openPayForLiveAttest() {
-    if (!detail) return;
-    setPayError(null);
-    setCountError(null);
-    setCounting(true);
-    setPayPurpose("attest");
-    try {
-      // Unpaid probe → 402 challenge for live attest.
-      await apiPostPaid<LiveCountResult>(
-        `/warehouses/${warehouseId}/count-live`,
-        { cameraId: detail.attestation.camera_id ?? undefined },
-        {
-          onChallenge: async (challenge) => {
-            setPayChallenge(challenge);
-            setPayOpen(true);
-            setCounting(false);
-            return false; // abort; confirmPay will retry with signature
-          },
-        },
-      );
-    } catch (err) {
-      const msg =
-        err instanceof Error ? err.message : "Couldn't start payment.";
-      if (msg !== "Payment cancelled") setCountError(msg);
-      setCounting(false);
-    }
-  }
-
-  async function runCreReview() {
-    const attestationId = detail?.attestation?.id;
-    if (!attestationId) return;
-    setCreBusy(true);
-    setCreError(null);
-    try {
-      await apiPost<{ reviewId: string }>("/cre/reviews", {
-        attestationId,
-        requestedBy: "buyer",
-      });
-      // Local mirror so the UI works without the CRE CLI running.
-      // Prize demo: also run `cre workflow simulate fraud-review …`.
-      const local = await apiPost<{
-        verdict: {
-          verdict: string;
-          score: number;
-          reason_hash: string;
-          source: string;
-        };
-      }>(`/cre/reviews/${attestationId}/run-local`);
-      setCreVerdict(local.verdict);
-    } catch (err) {
-      setCreError(err instanceof Error ? err.message : "CRE review failed.");
-    } finally {
-      setCreBusy(false);
-    }
-  }
-
   async function confirmPayUnlock() {
     if (!payChallenge) return;
     setPaying(true);
     setPayError(null);
     try {
+      const path = `/stock/${warehouseId}/${encodeURIComponent(sku)}`;
       const requirements = payChallenge.accepts?.[0];
       if (!requirements) {
         throw new Error("Challenge missing payment requirements.");
@@ -236,61 +183,74 @@ export default function StockDetailPage() {
         signer,
       );
 
-      if (payPurpose === "attest") {
-        setCounting(true);
-        const result = await apiPostPaid<LiveCountResult>(
-          `/warehouses/${warehouseId}/count-live`,
-          { cameraId: detail?.attestation.camera_id ?? undefined },
-          { paymentSignature: signed.paymentHeader },
-        );
-        setLiveCount(result);
-        setPayOpen(false);
-        setPayChallenge(null);
-        try {
-          const refreshed = await apiGet<StockDetailResponse>(
-            `/warehouses/${warehouseId}/stock/${encodeURIComponent(sku)}`,
-          );
-          setDetail(refreshed);
-        } catch {
-          /* keep prior detail */
-        }
-      } else {
-        const path = `/stock/${warehouseId}/${encodeURIComponent(sku)}`;
-        const result = await apiGetPaid<{
-          paid: boolean;
-          x402: NonNullable<typeof paidQuery>["x402"];
-          item: { sku: string; count: number; detectedCount?: number };
-        }>(path, { paymentSignature: signed.paymentHeader });
+      const result = await apiGetPaid<{
+        paid: boolean;
+        x402: NonNullable<typeof paidQuery>["x402"];
+        item: { sku: string; count: number; detectedCount?: number };
+      }>(path, { paymentSignature: signed.paymentHeader });
 
-        setPaidQuery(result);
-        setPayOpen(false);
-        setPayChallenge(null);
-      }
+      setPaidQuery(result);
+      setPayOpen(false);
+      setPayChallenge(null);
     } catch (err) {
-      if (payPurpose === "attest") {
-        setLiveCount(null);
-        const raw =
-          err instanceof Error ? err.message : "Live attestation failed.";
-        const friendly =
-          /cmos_mismatch|signature_invalid|verification_failed/i.test(raw)
-            ? "Camera authenticity could not be confirmed. This warehouse has been marked unverified."
-            : raw;
-        if (raw !== "Payment cancelled") setCountError(friendly);
-        try {
-          const refreshed = await apiGet<StockDetailResponse>(
-            `/warehouses/${warehouseId}/stock/${encodeURIComponent(sku)}`,
-          );
-          setDetail(refreshed);
-        } catch {
-          /* keep prior */
-        }
-      } else {
-        setPaidQuery(null);
-        const msg = err instanceof Error ? err.message : "x402 payment failed.";
-        if (msg !== "Payment cancelled") setPayError(msg);
-      }
+      setPaidQuery(null);
+      const msg = err instanceof Error ? err.message : "x402 payment failed.";
+      if (msg !== "Payment cancelled") setPayError(msg);
     } finally {
       setPaying(false);
+    }
+  }
+
+  async function countLiveFrame() {
+    if (!detail) return;
+    setCounting(true);
+    setCountError(null);
+    try {
+      const result = await apiPost<LiveCountResult>(
+        `/warehouses/${warehouseId}/count-live`,
+        {
+          cameraId: detail.attestation.camera_id ?? undefined,
+        },
+      );
+      setLiveCount(result);
+      // Refresh page data so published attestation totals update.
+      // If this SKU wasn't in the frame, API still returns count 0 (not 404).
+      try {
+        const refreshed = await apiGet<StockDetailResponse>(
+          `/warehouses/${warehouseId}/stock/${encodeURIComponent(sku)}`,
+        );
+        setDetail(refreshed);
+      } catch {
+        const fromLive = (result.items ?? []).find((i) => i.sku === sku);
+        setDetail({
+          ...detail,
+          skuAbsent: !fromLive,
+          item: {
+            ...detail.item,
+            confidence: fromLive?.confidence ?? detail.item.confidence,
+            detectedCount: fromLive?.count ?? 0,
+          },
+          detectedTotal: result.totalUnits,
+          attestation: {
+            ...detail.attestation,
+            id: result.attestationId ?? detail.attestation.id,
+            camera_id: result.cameraId,
+            items: result.items ?? [],
+            image_hash: result.imageHash,
+            model: result.model,
+            nonce: result.nonce ?? detail.attestation.nonce,
+            captured_at: result.countedAt,
+            cmos_score: result.cmosScore ?? detail.attestation.cmos_score,
+            detection_count: result.detectionCount,
+          },
+        });
+      }
+    } catch (err) {
+      setLiveCount(null);
+      setCountError(
+        err instanceof Error ? err.message : "Live attestation failed.",
+      );
+    } finally {
       setCounting(false);
     }
   }
@@ -346,17 +306,8 @@ export default function StockDetailPage() {
     );
   }
 
-  const {
-    warehouse,
-    attestation,
-    item,
-    copy,
-    trustChecks,
-    liveStreamUrl,
-    camera,
-  } = detail;
-  /** Fake UI only after DB says so (set when refresh/attest detects CMOS fraud). */
-  const showFakeFlag = Boolean(camera?.isFake);
+  const { warehouse, attestation, item, copy, trustChecks, liveStreamUrl } =
+    detail;
   const attestedItems = attestation.items ?? [];
   const attestedTotal =
     detail.totalUnits ??
@@ -419,13 +370,7 @@ export default function StockDetailPage() {
           />
 
           <div className="product-detail-badges">
-            {showFakeFlag ? (
-              <span className="meta-chip meta-chip--fraud">
-                Unverified camera
-              </span>
-            ) : (
-              <Badge status="verified" />
-            )}
+            <Badge status="verified" />
             <span className="meta-chip">
               {item.count > 0 ? "Available" : "Out of stock"}
             </span>
@@ -440,14 +385,7 @@ export default function StockDetailPage() {
                 CMOS score {Number(attestation.cmos_score).toFixed(3)}
               </span>
             ) : null}
-            {attestation.prnu_score != null ? (
-              <span className="meta-chip">
-                PRNU score {Number(attestation.prnu_score).toFixed(4)}
-              </span>
-            ) : null}
           </div>
-
-          {showFakeFlag && <FraudFlag />}
 
           <div className="product-detail-figures">
             <div>
@@ -479,12 +417,7 @@ export default function StockDetailPage() {
             </button>
             <button
               className="btn btn-ghost"
-              disabled={item.count < 1 || showFakeFlag}
-              title={
-                showFakeFlag
-                  ? "Ordering unavailable while camera authenticity is unverified"
-                  : undefined
-              }
+              disabled={item.count < 1}
               onClick={() => setOrdering(true)}
             >
               Place order
@@ -628,56 +561,237 @@ export default function StockDetailPage() {
       </div>
 
       {showAttest && (
-        <ViewAttestationModal
-          title={copy.overlayTitle}
-          subtitle={copy.overlaySub}
-          sku={item.sku}
-          orderableCount={item.count}
-          detectedCount={item.detectedCount ?? 0}
-          shelf={item.shelf || "—"}
-          showFakeFlag={showFakeFlag}
-          trustChecks={trustChecks}
-          attestation={{
-            id: attestation.id,
-            camera_id: attestation.camera_id,
-            camera_account: attestation.camera_account,
-            camera_label: attestation.camera_label,
-            nonce: attestation.nonce,
-            image_hash: attestation.image_hash,
-            model: attestation.model ?? null,
-            model_hash: attestation.model_hash,
-            items: attestedItems,
-            captured_at: attestation.captured_at,
-            cmos_score: attestation.cmos_score,
-            prnu_score: attestation.prnu_score,
-            hcs_topic_id:
-              (attestation as { hcs_topic_id?: string | null }).hcs_topic_id ??
-              null,
-            hcs_sequence_number:
+        <Overlay onClose={() => setShowAttest(false)} wide>
+          <div className="overlay-title">{copy.overlayTitle}</div>
+          <div className="overlay-sub">{copy.overlaySub}</div>
+
+          <div className="attest-total-banner">
+            <div>
+              <div className="detail-label">Available to order</div>
+              <div className="product-figure mono">{item.count}</div>
+            </div>
+            <button
+              className="btn btn-primary"
+              onClick={countLiveFrame}
+              disabled={counting}
+            >
+              {counting
+                ? (copy.countLiveBusy ?? "Counting…")
+                : (copy.countLiveLabel ?? "Refresh camera proof")}
+            </button>
+          </div>
+          <p className="row-sub" style={{ marginBottom: 16 }}>
+            {copy.countLiveHint ??
+              "Camera proof only — does not change orderable stock."}
+          </p>
+
+          {countError && <div className="field-error">{countError}</div>}
+
+          {liveCount && (
+            <div className="panel panel-pad" style={{ marginBottom: 16 }}>
+              <div className="overlay-title" style={{ marginBottom: 10 }}>
+                Camera attestation (evidence)
+              </div>
+              <DetailRow
+                label="Detected in frame"
+                value={String(liveCount.totalUnits)}
+              />
+              <DetailRow
+                label="Detections"
+                value={String(liveCount.detectionCount)}
+              />
+              {liveCount.cmosScore != null && (
+                <DetailRow
+                  label="CMOS / PUF score"
+                  value={Number(liveCount.cmosScore).toFixed(3)}
+                />
+              )}
+              {liveCount.steps?.challenge && (
+                <>
+                  <DetailRow
+                    label="PUF / CMOS match"
+                    value={
+                      liveCount.steps.challenge.match ||
+                      liveCount.steps.cmosMatch?.match
+                        ? "yes"
+                        : "no"
+                    }
+                  />
+                  <DetailRow
+                    label="OSD nonce match"
+                    value={liveCount.steps.challenge.osdMatch ? "yes" : "no"}
+                  />
+                </>
+              )}
+              {liveCount.nonce && (
+                <DetailRow label="Nonce" value={liveCount.nonce} mono />
+              )}
+              {liveCount.attestationId && (
+                <DetailRow
+                  label="Attestation id"
+                  value={liveCount.attestationId}
+                  mono
+                />
+              )}
+              <DetailRow label="Engine" value={liveCount.engine} mono />
+              <DetailRow label="Model" value={liveCount.model} mono />
+              <DetailRow
+                label="Attested at"
+                value={new Date(liveCount.countedAt).toLocaleString()}
+              />
+              {liveCount.items.length > 0 && (
+                <table className="data-table" style={{ marginTop: 12 }}>
+                  <thead>
+                    <tr>
+                      <th>SKU</th>
+                      <th>Detected</th>
+                      <th>Shelf</th>
+                      <th>Confidence</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {liveCount.items.map((i) => (
+                      <tr key={`${i.sku}-${i.shelf}`}>
+                        <td className="mono">{i.sku}</td>
+                        <td className="mono">{i.count}</td>
+                        <td>{i.shelf}</td>
+                        <td className="mono">
+                          {Math.round(i.confidence * 100)}%
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
+
+          {trustChecks.length > 0 && (
+            <ul className="attest-trust-list">
+              {trustChecks.map((check) => (
+                <li key={check.title} data-ok={check.ok ? "true" : "false"}>
+                  <strong>{check.title}</strong>
+                  <span>{check.body}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <div className="panel panel-pad" style={{ marginBottom: 16 }}>
+            <DetailRow label="SKU" value={item.sku} mono />
+            <DetailRow label="Available to order" value={String(item.count)} />
+            <DetailRow
+              label="Detected in frame"
+              value={String(item.detectedCount ?? 0)}
+            />
+            {attestation.cmos_score != null && (
+              <DetailRow
+                label="CMOS / PUF score"
+                value={Number(attestation.cmos_score).toFixed(3)}
+              />
+            )}
+            <DetailRow label="Shelf" value={item.shelf || "—"} />
+            <DetailRow
+              label="Captured at"
+              value={new Date(attestation.captured_at).toLocaleString()}
+            />
+            <DetailRow label="Attestation id" value={attestation.id} mono />
+            {"hcs_topic_id" in attestation &&
+              (attestation as { hcs_topic_id?: string | null })
+                .hcs_topic_id && (
+                <DetailRow
+                  label="HCS topic"
+                  value={
+                    (attestation as { hcs_topic_id?: string }).hcs_topic_id
+                  }
+                  mono
+                />
+              )}
+            {"hcs_sequence_number" in attestation &&
               (attestation as { hcs_sequence_number?: number | null })
-                .hcs_sequence_number ?? null,
-          }}
-          attestedItems={attestedItems}
-          liveCount={liveCount}
-          counting={counting || (paying && payPurpose === "attest")}
-          countError={countError}
-          countLiveLabel={copy.countLiveLabel ?? "Pay & refresh proof"}
-          countLiveBusy={copy.countLiveBusy ?? "Paying & attesting…"}
-          countLiveHint={
-            copy.countLiveHint ??
-            "Pay with x402 to re-run live CMOS + nonce proof."
-          }
-          onPayRefresh={openPayForLiveAttest}
-          onClose={() => setShowAttest(false)}
-          onPlaceOrder={() => {
-            setShowAttest(false);
-            setOrdering(true);
-          }}
-          creVerdict={creVerdict}
-          creBusy={creBusy}
-          creError={creError}
-          onCreReview={runCreReview}
-        />
+                .hcs_sequence_number != null && (
+                <DetailRow
+                  label="HCS sequence"
+                  value={String(
+                    (attestation as { hcs_sequence_number?: number })
+                      .hcs_sequence_number,
+                  )}
+                  mono
+                />
+              )}
+            <DetailRow
+              label="Camera account"
+              value={attestation.camera_account}
+              mono
+            />
+            {attestation.camera_label && (
+              <DetailRow label="Camera" value={attestation.camera_label} />
+            )}
+            <DetailRow label="Nonce" value={attestation.nonce} mono />
+            <DetailRow label="Image hash" value={attestation.image_hash} mono />
+            {attestation.model && (
+              <DetailRow label="Model" value={attestation.model} mono />
+            )}
+            <DetailRow label="Model hash" value={attestation.model_hash} mono />
+          </div>
+
+          {attestedItems.length > 0 && (
+            <div className="attest-items">
+              <div
+                className="overlay-title"
+                style={{ fontSize: 14, marginBottom: 10 }}
+              >
+                All SKUs in this capture
+              </div>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>SKU</th>
+                    <th>Count</th>
+                    <th>Shelf</th>
+                    <th>Confidence</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {attestedItems.map((i) => (
+                    <tr
+                      key={i.sku}
+                      data-active={i.sku === item.sku ? "true" : undefined}
+                    >
+                      <td className="mono">{i.sku}</td>
+                      <td className="mono">{i.count}</td>
+                      <td>{i.shelf}</td>
+                      <td className="mono">
+                        {Math.round(i.confidence * 100)}%
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
+            <button
+              className="btn btn-ghost"
+              style={{ flex: 1 }}
+              onClick={() => setShowAttest(false)}
+            >
+              Close
+            </button>
+            <button
+              className="btn btn-primary"
+              style={{ flex: 1 }}
+              disabled={item.count < 1}
+              onClick={() => {
+                setShowAttest(false);
+                setOrdering(true);
+              }}
+            >
+              Place order
+            </button>
+          </div>
+        </Overlay>
       )}
 
       {ordering && (
@@ -689,17 +803,6 @@ export default function StockDetailPage() {
 
       {payOpen && payChallenge && detail && (
         <PayUnlockDialog
-          title={
-            payPurpose === "attest"
-              ? "Pay & refresh camera proof"
-              : "Unlock attested stock"
-          }
-          subtitle={
-            payPurpose === "attest"
-              ? `${sku} · Live CMOS + nonce attestation · Hedera x402`
-              : undefined
-          }
-          confirmVerb={payPurpose === "attest" ? "Pay & attest" : "Pay"}
           sku={sku}
           warehouseName={
             detail.warehouse.profiles?.company_name
@@ -707,11 +810,11 @@ export default function StockDetailPage() {
               : detail.warehouse.name
           }
           challenge={payChallenge}
-          busy={paying || counting}
-          error={payPurpose === "attest" ? countError : payError}
+          busy={paying}
+          error={payError}
           onConfirm={confirmPayUnlock}
           onCancel={() => {
-            if (paying || counting) return;
+            if (paying) return;
             setPayOpen(false);
             setPayChallenge(null);
             setPayError(null);

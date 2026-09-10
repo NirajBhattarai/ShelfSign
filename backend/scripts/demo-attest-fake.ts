@@ -63,7 +63,9 @@ async function main() {
 
   try {
     const result = await runFullAttestation(camera as never);
-    console.log("RESULT: ATTESTATION ACCEPTED (unexpected for fake after swap)");
+    console.log(
+      "RESULT: ATTESTATION ACCEPTED (unexpected for fake after swap)",
+    );
     console.log(
       JSON.stringify(
         {

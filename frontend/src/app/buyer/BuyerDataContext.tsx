@@ -42,6 +42,7 @@ export interface Attestation {
   cmos_score?: number | null;
   prnu_score?: number | null;
   detection_count?: number | null;
+  is_fake?: boolean;
 }
 
 export interface StockRow {

@@ -116,9 +116,7 @@ export function HederaWalletProvider({ children }: { children: ReactNode }) {
       const next = await connectWalletConnect();
       setWallet(next);
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Couldn't connect wallet.",
-      );
+      setError(err instanceof Error ? err.message : "Couldn't connect wallet.");
       throw err;
     } finally {
       setConnecting(false);

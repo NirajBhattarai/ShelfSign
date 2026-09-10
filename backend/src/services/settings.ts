@@ -7,11 +7,11 @@ const DEFAULT_BUYER_STOCK_COPY = {
   liveUnavailable: "Live camera unavailable for this warehouse",
   liveConnecting: "Connecting to live camera…",
   liveFallback: "Live feed unavailable — warehouse photo",
-  overlayTitle: "Attestation",
-  countLiveLabel: "Pay & refresh proof",
-  countLiveBusy: "Paying & attesting…",
+  overlayTitle: "Warehouse attestation",
+  countLiveLabel: "Attest live frame",
+  countLiveBusy: "Running full attestation (OSD + PUF + YOLO)…",
   countLiveHint:
-    "Pay with x402 to re-run live CMOS + nonce proof. Orderable stock stays supplier-declared.",
+    "Runs a full SiliconWitness attestation: OSD nonce, PUF identity, then YOLO count on that frame.",
 };
 
 export type SystemSettingKey =
@@ -23,8 +23,26 @@ export type SystemSettingKey =
   | "buyer_trust_checks"
   | "buyer_stock_copy";
 
+/** Build `host` or `host:port` for ISAPI. Port 80 may be omitted.
+ *  After moving camera behind a router/switch, set HIKVISION_HOST to the
+ *  camera's LAN IP on that subnet (e.g. 192.168.100.64), not the old
+ *  direct-link IP (e.g. 192.168.50.64). */
+export function resolveHikvisionHost(
+  host = process.env.HIKVISION_HOST,
+  port = process.env.HIKVISION_PORT,
+): string | undefined {
+  const raw = host?.trim();
+  if (!raw) return undefined;
+  // Already has scheme or explicit port — leave as-is (strip scheme for ISAPI client).
+  const withoutScheme = raw.replace(/^https?:\/\//i, "");
+  if (!port?.trim() || withoutScheme.includes(":")) return withoutScheme;
+  const p = port.trim();
+  if (p === "80") return withoutScheme;
+  return `${withoutScheme}:${p}`;
+}
+
 const ENV_FALLBACK: Record<SystemSettingKey, string | undefined> = {
-  hikvision_host: process.env.HIKVISION_HOST,
+  hikvision_host: resolveHikvisionHost(),
   hikvision_user: process.env.HIKVISION_USER,
   hikvision_pass: process.env.HIKVISION_PASS,
   vision_service_url: process.env.VISION_SERVICE_URL ?? "http://localhost:8000",

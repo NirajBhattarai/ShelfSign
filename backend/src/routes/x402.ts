@@ -10,9 +10,7 @@ x402Router.use(requireAuth);
 /** Challenge for a resource (no pay). */
 x402Router.get("/challenge", async (req, res) => {
   const resource =
-    typeof req.query.resource === "string"
-      ? req.query.resource
-      : "/stock/demo";
+    typeof req.query.resource === "string" ? req.query.resource : "/stock/demo";
   const requirements = await buildPaymentRequirements(
     resource,
     "ShelfSign attested stock query",
@@ -74,8 +72,7 @@ x402Router.post("/unlock", async (req: AuthedRequest, res) => {
       return;
     }
     const path =
-      resource ??
-      `/stock/${warehouseId}/${encodeURIComponent(sku as string)}`;
+      resource ?? `/stock/${warehouseId}/${encodeURIComponent(sku as string)}`;
 
     const requirements = await buildPaymentRequirements(
       path,

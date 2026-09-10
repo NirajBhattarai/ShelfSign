@@ -1,13 +1,20 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 if (!supabaseUrl || !supabaseServiceRoleKey) {
-  throw new Error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set");
+  console.warn(
+    "[supabase] SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY missing — API routes that hit the DB will fail until set in backend/.env",
+  );
 }
 
 // Service-role client: bypasses RLS. Only ever used server-side.
-export const supabase = createClient(supabaseUrl, supabaseServiceRoleKey, {
-  auth: { autoRefreshToken: false, persistSession: false },
-});
+// Placeholder URL keeps the process bootable for /health when env is incomplete.
+export const supabase: SupabaseClient = createClient(
+  supabaseUrl || "http://127.0.0.1:54321",
+  supabaseServiceRoleKey || "missing-service-role-key",
+  {
+    auth: { autoRefreshToken: false, persistSession: false },
+  },
+);

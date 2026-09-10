@@ -11,6 +11,8 @@ export interface AttestationVerifyInput {
    * baseline is available yet (camera enrolled before this feature) so
    * legacy cameras aren't retroactively failed. */
   prnuFingerprintMatch: boolean;
+  /** OSD nonce burned into the capture (OCR or OSD-crop liveness). */
+  osdMatch?: boolean;
 }
 
 export interface VerifyResult {
@@ -45,6 +47,7 @@ export function verifyAttestation(input: AttestationVerifyInput): VerifyResult {
   if (input.imageHash !== input.claimedImageHash)
     reasons.push("image_hash_mismatch");
   if (!input.signatureValid) reasons.push("signature_invalid");
+  if (input.osdMatch === false) reasons.push("osd_mismatch");
   if (ENFORCE_PRNU && !input.prnuFingerprintMatch)
     reasons.push("prnu_mismatch");
 
@@ -55,6 +58,7 @@ export function verifyAttestation(input: AttestationVerifyInput): VerifyResult {
       "cmos_mismatch",
       "signature_invalid",
       "prnu_mismatch",
+      "osd_mismatch",
     ]);
     const remaining = reasons.filter((r) => !pufReasons.has(r));
     if (remaining.length === 0) {

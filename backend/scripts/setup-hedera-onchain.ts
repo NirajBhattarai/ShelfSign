@@ -86,7 +86,9 @@ async function main() {
   const operatorId = await resolveAccountId(
     process.env.HEDERA_OPERATOR_ID || opEvm,
   );
-  const agentId = await resolveAccountId(process.env.HEDERA_AGENT_ID || agentEvm);
+  const agentId = await resolveAccountId(
+    process.env.HEDERA_AGENT_ID || agentEvm,
+  );
 
   console.log({ operatorId, agentId });
 

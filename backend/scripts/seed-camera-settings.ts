@@ -11,11 +11,12 @@ import "dotenv/config";
 import {
   getBuyerStockCopy,
   getBuyerTrustChecks,
+  resolveHikvisionHost,
   upsertSetting,
 } from "../src/services/settings.js";
 
 async function main() {
-  const host = process.env.HIKVISION_HOST?.trim();
+  const host = resolveHikvisionHost();
   const user = process.env.HIKVISION_USER?.trim();
   const pass = process.env.HIKVISION_PASS?.trim();
   const vision =
@@ -28,7 +29,8 @@ async function main() {
   if (!host || !user || !pass) {
     console.error(
       "Missing HIKVISION_HOST / HIKVISION_USER / HIKVISION_PASS in backend/.env\n" +
-        "Copy them from /Users/niraj/Desktop/siliconwitness/.env for now.",
+        "On router→switch→camera, use the camera IP on that LAN (e.g. 192.168.100.64),\n" +
+        "not the old direct-LAN IP (e.g. 192.168.50.64). Optional: HIKVISION_PORT=80",
     );
     process.exit(1);
   }

@@ -288,7 +288,13 @@ export default function StockCatalogPage() {
                   <div className="stock-card-body">
                     <div className="stock-card-top">
                       <h3 className="stock-card-title">{row.item.sku}</h3>
-                      <Badge status="verified" />
+                      {row.attestation.is_fake ? (
+                        <span className="meta-chip meta-chip--fraud">
+                          Unverified camera
+                        </span>
+                      ) : (
+                        <Badge status="verified" />
+                      )}
                     </div>
                     <div className="row-sub">
                       {row.warehouse.profiles?.company_name}

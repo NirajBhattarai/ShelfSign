@@ -18,21 +18,10 @@ import numpy as np
 from PIL import Image
 
 # COCO class → stock SKU. Hackathon catalog is only these three.
-#
-# Monitor mapping rationale:
-#   "tv"     → MONITOR: COCO's label for flat-panel displays; primary mapping.
-#   "laptop" → MONITOR: yolov8n (COCO) frequently labels widescreen desk
-#              monitors as "laptop" when the camera is roughly head-on and the
-#              keyboard is not in frame.  In office AV inventory a laptop and
-#              a desk monitor are both countable AV assets; accepting both
-#              avoids systematic under-counting without fabricating detections.
-#              If the deployment needs laptops tracked separately, override via
-#              YOLO_SKU_MAP_JSON={"laptop":"LAPTOP"} at runtime.
 DEFAULT_STOCK_CLASS_TO_SKU: dict[str, str] = {
     "chair": "CHAIR",
     "dining table": "TABLE",
     "tv": "MONITOR",
-    "laptop": "MONITOR",
 }
 
 # Category label (warehouse UI) → SKU used in attestations / stock rows.
@@ -46,7 +35,6 @@ CATEGORY_TO_SKU: dict[str, str] = {
 }
 
 IGNORE_CLASSES = {
-    # Vehicles / outdoor
     "person",
     "bicycle",
     "car",
@@ -61,7 +49,6 @@ IGNORE_CLASSES = {
     "stop sign",
     "parking meter",
     "bench",
-    # Animals
     "bird",
     "cat",
     "dog",
@@ -72,26 +59,11 @@ IGNORE_CLASSES = {
     "bear",
     "zebra",
     "giraffe",
-    # Small office items — not tracked as AV inventory; explicit here so they
-    # are counted in ignoredCount rather than silently hitting the sku_map miss.
-    "cell phone",
-    "remote",
-    "keyboard",
-    "mouse",
-    "book",
-    "bottle",
-    "cup",
-    "vase",
-    "clock",
-    "scissors",
 }
 
 MODEL_NAME = os.environ.get("YOLO_MODEL_NAME", "yolov8n-stock-v1")
 DEFAULT_WEIGHTS = os.environ.get("YOLO_WEIGHTS", "yolov8n.pt")
-# 0.20 (down from 0.25): catches partially-occluded or angled monitors that
-# sit in the 0.20–0.24 band.  Do not go below 0.15 with yolov8n — the small
-# model produces spurious detections in background clutter below that point.
-DEFAULT_CONF = float(os.environ.get("YOLO_CONFIDENCE", "0.20"))
+DEFAULT_CONF = float(os.environ.get("YOLO_CONFIDENCE", "0.25"))
 
 
 def categories_to_skus(categories: Optional[Iterable[str]]) -> Optional[set[str]]:

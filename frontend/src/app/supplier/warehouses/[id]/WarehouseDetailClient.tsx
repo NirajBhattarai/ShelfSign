@@ -69,6 +69,12 @@ export default function WarehouseDetailClient() {
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
   const [attestingCamera, setAttestingCamera] = useState<Camera | null>(null);
   const [restakingId, setRestakingId] = useState<string | null>(null);
+  const [editingCamera, setEditingCamera] = useState<Camera | null>(null);
+  const [editHost, setEditHost] = useState("");
+  const [editUsername, setEditUsername] = useState("");
+  const [editPassword, setEditPassword] = useState("");
+  const [savingCamera, setSavingCamera] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
   const [stockRows, setStockRows] = useState<StockRow[]>([]);
   const [stockLoading, setStockLoading] = useState(true);
   const [savingStock, setSavingStock] = useState(false);
@@ -132,6 +138,51 @@ export default function WarehouseDetailClient() {
       );
     } finally {
       setRegistering(false);
+    }
+  }
+
+  function openEditCamera(cam: Camera) {
+    setEditingCamera(cam);
+    setEditHost(cam.host ?? "");
+    setEditUsername("");
+    setEditPassword("");
+    setEditError(null);
+  }
+
+  function closeEditCamera() {
+    setEditingCamera(null);
+    setEditHost("");
+    setEditUsername("");
+    setEditPassword("");
+    setEditError(null);
+  }
+
+  async function saveCameraCredentials() {
+    if (!editingCamera) return;
+    if (!editHost.trim() || !editUsername.trim() || !editPassword.trim()) {
+      setEditError("Host, username, and password are all required.");
+      return;
+    }
+    setSavingCamera(true);
+    setEditError(null);
+    try {
+      await apiPut<Camera>(`/cameras/${editingCamera.id}`, {
+        host: editHost.trim(),
+        username: editUsername.trim(),
+        password: editPassword.trim(),
+      });
+      await refetchCameras();
+      closeEditCamera();
+      showToast(
+        "Camera updated — host saved. Attest against this device to enroll; Fake Cam stubs stay unverified.",
+        "success",
+      );
+    } catch (err) {
+      setEditError(
+        err instanceof Error ? err.message : "Couldn't update this camera.",
+      );
+    } finally {
+      setSavingCamera(false);
     }
   }
 
@@ -305,8 +356,8 @@ export default function WarehouseDetailClient() {
         {warehouseCameras.map((cam) => {
           const attestBusy = Boolean(
             cam.attest_locked_at &&
-            Date.now() - new Date(cam.attest_locked_at).getTime() <
-              3 * 60 * 1000,
+              Date.now() - new Date(cam.attest_locked_at).getTime() <
+                3 * 60 * 1000,
           );
           return (
             <div key={cam.id} className="ledger-row">
@@ -334,7 +385,7 @@ export default function WarehouseDetailClient() {
                     <span className="meta-chip" data-tone="danger">
                       Bond slashed
                     </span>
-                  ) : cam.enrollment_status === "enrolled" &&
+                  ) : cam.enrollment_status !== "failed" &&
                     cam.escrow_status !== "locked" ? (
                     <span className="meta-chip" data-tone="danger">
                       Bond required
@@ -353,7 +404,10 @@ export default function WarehouseDetailClient() {
                     {cam.fraud_detected_at
                       ? ` · ${new Date(cam.fraud_detected_at).toLocaleString()}`
                       : ""}
-                    . Buyers will see a trust warning for this warehouse.
+                    . Buyers will see a trust warning for this warehouse. If the
+                    wrong device is registered, use "Edit IP / login" to point
+                    this camera at the right one, then restake and re-attest to
+                    clear the flag.
                   </div>
                 ) : null}
                 {cam.escrow_status === "locked" && (
@@ -397,7 +451,7 @@ export default function WarehouseDetailClient() {
                     . Attestation is paused until the bond is restaked.
                   </div>
                 )}
-                {cam.enrollment_status === "enrolled" && !cam.escrow_status && (
+                {cam.enrollment_status !== "failed" && !cam.escrow_status && (
                   <div className="row-sub" style={{ marginTop: 4 }}>
                     No HBAR bond on file for this camera. Attestation is paused
                     until 10 ℏ is staked.
@@ -412,7 +466,7 @@ export default function WarehouseDetailClient() {
                   flexWrap: "wrap",
                 }}
               >
-                {cam.enrollment_status === "enrolled" &&
+                {cam.enrollment_status !== "failed" &&
                   cam.escrow_status !== "locked" && (
                     <button
                       className="btn btn-primary"
@@ -427,7 +481,7 @@ export default function WarehouseDetailClient() {
                           : "Stake 10 HBAR"}
                     </button>
                   )}
-                {cam.enrollment_status === "enrolled" && (
+                {cam.enrollment_status !== "failed" && (
                   <button
                     className="btn btn-primary"
                     style={{ padding: "8px 12px" }}
@@ -439,11 +493,17 @@ export default function WarehouseDetailClient() {
                           ? "No HBAR bond on file — stake before attesting"
                           : attestBusy
                             ? "Another attestation is running on this camera"
-                            : undefined
+                            : cam.enrollment_status === "pending"
+                              ? "No PUF enrollment on file — this will re-enroll against the current host first"
+                              : undefined
                     }
                     onClick={() => setAttestingCamera(cam)}
                   >
-                    {attestBusy ? "Attesting…" : "Pay & attest"}
+                    {attestBusy
+                      ? "Attesting…"
+                      : cam.enrollment_status === "pending"
+                        ? "Re-enroll & attest"
+                        : "Pay & attest"}
                   </button>
                 )}
                 <button
@@ -452,6 +512,13 @@ export default function WarehouseDetailClient() {
                   onClick={() => openLiveView(cam)}
                 >
                   View live
+                </button>
+                <button
+                  className="link-btn"
+                  style={{ marginTop: 0 }}
+                  onClick={() => openEditCamera(cam)}
+                >
+                  Edit IP / login
                 </button>
                 <LedStatus status={cam.enrollment_status} />
               </div>
@@ -668,6 +735,69 @@ export default function WarehouseDetailClient() {
         </Overlay>
       )}
 
+      {editingCamera && (
+        <Overlay onClose={closeEditCamera}>
+          <div className="overlay-title">Edit {editingCamera.label}</div>
+          <div className="overlay-sub">
+            Point this camera at a different device, or fix wrong credentials.
+            Saving clears its PUF enrollment — attest again to re-enroll against
+            the new device, and restake if its bond was slashed.
+          </div>
+
+          <div className="field">
+            <label htmlFor="cam-edit-host">Host (IP:port)</label>
+            <input
+              id="cam-edit-host"
+              value={editHost}
+              onChange={(e) => setEditHost(e.target.value)}
+              placeholder="e.g. 192.168.50.64"
+              autoFocus
+            />
+          </div>
+          <div className="field">
+            <label htmlFor="cam-edit-username">Username</label>
+            <input
+              id="cam-edit-username"
+              value={editUsername}
+              onChange={(e) => setEditUsername(e.target.value)}
+              placeholder="admin"
+              autoComplete="off"
+            />
+          </div>
+          <div className="field">
+            <label htmlFor="cam-edit-password">Password</label>
+            <input
+              id="cam-edit-password"
+              type="password"
+              value={editPassword}
+              onChange={(e) => setEditPassword(e.target.value)}
+              autoComplete="new-password"
+              onKeyDown={(e) => e.key === "Enter" && saveCameraCredentials()}
+            />
+          </div>
+
+          {editError && <div className="field-error">{editError}</div>}
+
+          <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+            <button
+              className="btn btn-ghost"
+              style={{ flex: 1 }}
+              onClick={closeEditCamera}
+            >
+              Cancel
+            </button>
+            <button
+              className="btn btn-primary"
+              style={{ flex: 1 }}
+              onClick={saveCameraCredentials}
+              disabled={savingCamera}
+            >
+              {savingCamera ? "Saving…" : "Save"}
+            </button>
+          </div>
+        </Overlay>
+      )}
+
       {viewingCamera && streamUrl && (
         <Overlay onClose={closeLiveView} wide>
           <div className="overlay-title">{viewingCamera.label}</div>
@@ -681,7 +811,9 @@ export default function WarehouseDetailClient() {
 
       {attestingCamera && (
         <AttestWizard
-          camera={attestingCamera}
+          camera={
+            cameras.find((c) => c.id === attestingCamera.id) ?? attestingCamera
+          }
           onClose={() => setAttestingCamera(null)}
           onComplete={() => {
             void refetchCameras();

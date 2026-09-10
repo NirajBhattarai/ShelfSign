@@ -23,6 +23,10 @@ from typing import Optional
 import numpy as np
 
 from .capture import capture_snapshot, saturation_variance
+from .device_authenticity import (
+    assert_live_sensor_burst,
+    assert_physical_device,
+)
 from .isapi_client import ISAPIClient
 from .isapi_controls import set_color, set_ir_brightness, set_ircut_mode, set_osd_text
 from .prnu import estimate_fingerprint
@@ -130,20 +134,27 @@ def enroll_from_camera(
 
     # Hold exclusive camera access for the whole burst so live MJPEG cannot
     # interleave and trip deviceBusy mid-enrollment.
-    with camera_snapshot_lock(timeout_s=180.0):
+    with camera_snapshot_lock(host=host, timeout_s=180.0):
+        # Refuse known ISAPI stubs before we invent a self-consistent PUF identity.
+        assert_physical_device(client)
+
         _force_challenge_aligned_state(
             client, settle_s=settle_s, confirm_poll_s=confirm_poll_s
         )
 
         captures = []
+        raw_jpegs = []
         for i in range(n_captures):
             nonce = "".join(random.choices(string.hexdigits.lower()[:16], k=6))
             set_osd_text(client, nonce, enabled=True, position_x=0, position_y=576)
             time.sleep(0.5)  # OSD render settle
             cap = capture_snapshot(client)
             captures.append(cap.array)
+            raw_jpegs.append(cap.raw_bytes)
             if i < n_captures - 1:
                 time.sleep(capture_interval_s)
+
+        assert_live_sensor_burst(raw_jpegs)
 
         coords, reference_bits, flip_counts = select_stable_coords_from_burst(
             captures, candidate_pool=stability_pool, n_final=candidate_bits,

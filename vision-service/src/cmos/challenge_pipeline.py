@@ -20,11 +20,16 @@ import numpy as np
 from eth_utils import keccak
 
 from .capture import capture_snapshot, mean_luminance, saturation_variance
+from .device_authenticity import (
+    SyntheticDeviceError,
+    assert_physical_device,
+    osd_region_changed,
+)
 from .enroll_pipeline import EnrollmentRecord
 from .isapi_client import ISAPIClient
 from .isapi_controls import set_color, set_ir_brightness, set_ircut_mode, set_osd_text
 from .prnu import PRNU_MATCH_THRESHOLD, correlate as prnu_correlate, noise_residual
-from .puf_coords import bits_to_bytes, extract_bits
+from .puf_coords import CoordinatesOutOfBounds, bits_to_bytes, extract_bits
 from .puf_fuzzy_extractor import BCHParams, regenerate as fx_regenerate
 from .puf_keys import sign_and_zero
 
@@ -221,7 +226,29 @@ def respond_to_challenge(
 
     from .camera_gate import camera_snapshot_lock
 
-    with camera_snapshot_lock(timeout_s=120.0):
+    with camera_snapshot_lock(host=host, timeout_s=120.0):
+        # Fail closed on known stubs even if they were enrolled before this
+        # check existed (self-consistent PUF replay is not a real sensor).
+        try:
+            assert_physical_device(client)
+        except SyntheticDeviceError as e:
+            return {
+                "match": False,
+                "score": 0.0,
+                "correctedBitErrors": None,
+                "signature": None,
+                "signingError": str(e),
+                "imageHash": hashlib.sha256(f"synthetic:{host}:{nonce}".encode()).hexdigest(),
+                "cmosAccount": record.address,
+                "attestation": None,
+                "osdMatch": False,
+                "osdDecoded": "",
+                "prnuScore": None,
+                "prnuMatch": False,
+                "prnuAvailable": record.prnu_fingerprint is not None,
+                "frameBytes": None,
+            }
+
         wait_s = apply_required_state(client, required_state)
         if settle_override_s is not None:
             wait_s = settle_override_s
@@ -234,61 +261,122 @@ def respond_to_challenge(
         if required_state.get("colorMode") == "mono":
             _confirm_night_mode(client)
 
+        # OSD liveness without relying on tesseract: change overlay text and
+        # require the OSD crop to actually change. Fixture stubs that only
+        # store OSD in memory leave the JPEG crop unchanged (modulo frame loop).
+        osd_probe_before = capture_snapshot(client)
+        probe_alt = "zzzzzz" if nonce.lower() != "zzzzzz" else "yyyyyy"
+        set_osd_text(client, probe_alt, enabled=True, position_x=0, position_y=576)
+        time.sleep(SETTLE_S["osd"])
+        osd_probe_mid = capture_snapshot(client)
+        set_osd_text(client, nonce, enabled=True, position_x=0, position_y=576)
+        time.sleep(SETTLE_S["osd"])
+
         # Majority-vote several captures so one noisy JPEG doesn't blow BCH.
+        # A resolution/coordinate mismatch (e.g. a camera swapped for a
+        # different device) is fraud-relevant, not a crash -- caught below
+        # and treated as an immediate PUF mismatch instead of a 502.
         bit_rows = []
         caps = []
-        for i in range(CHALLENGE_BIT_SAMPLES):
-            c = capture_snapshot(client)
-            caps.append(c)
-            bit_rows.append(extract_bits(c.array, coords))
-            if i < CHALLENGE_BIT_SAMPLES - 1:
-                time.sleep(CHALLENGE_BIT_INTERVAL_S)
-        stacked = np.stack(bit_rows, axis=0)
-        bits = (stacked.sum(axis=0) >= (CHALLENGE_BIT_SAMPLES // 2 + 1)).astype(np.uint8)
+        coords_out_of_bounds = False
+        try:
+            for i in range(CHALLENGE_BIT_SAMPLES):
+                c = capture_snapshot(client)
+                caps.append(c)
+                bit_rows.append(extract_bits(c.array, coords))
+                if i < CHALLENGE_BIT_SAMPLES - 1:
+                    time.sleep(CHALLENGE_BIT_INTERVAL_S)
+        except CoordinatesOutOfBounds:
+            coords_out_of_bounds = True
+
+        if not caps:
+            return {
+                "match": False,
+                "score": 0.0,
+                "correctedBitErrors": None,
+                "signature": None,
+                "signingError": "challenge_capture_failed",
+                "imageHash": "",
+                "cmosAccount": record.address,
+                "attestation": None,
+                "osdMatch": False,
+                "osdDecoded": "",
+                "prnuScore": None,
+                "prnuMatch": False,
+                "prnuAvailable": record.prnu_fingerprint is not None,
+                "frameBytes": None,
+            }
+
         cap = caps[-1]  # nonce/OSD + imageHash bound to final capture
+        osd_burned_in = osd_region_changed(
+            osd_probe_before.array, osd_probe_mid.array, OSD_CROP
+        ) or osd_region_changed(osd_probe_mid.array, cap.array, OSD_CROP)
+
+        if coords_out_of_bounds:
+            bits = None
+        else:
+            stacked = np.stack(bit_rows, axis=0)
+            bits = (stacked.sum(axis=0) >= (CHALLENGE_BIT_SAMPLES // 2 + 1)).astype(
+                np.uint8
+            )
 
         # Classical PRNU sensor-noise correlation against the enrolled
         # fingerprint (see prnu.py). Only available for cameras enrolled
         # after this feature shipped -- record.prnu_fingerprint is None for
         # older enrollments, in which case this is skipped rather than
-        # treated as a failure.
+        # treated as a failure. A shape mismatch (different resolution --
+        # same swapped-camera scenario as above) is also a clean mismatch,
+        # not a crash.
         prnu_score: Optional[float] = None
         prnu_available = record.prnu_fingerprint is not None
         prnu_match = True
         if prnu_available:
-            residual = noise_residual(cap.array)
-            prnu_score = prnu_correlate(
-                residual, record.prnu_fingerprint, exclude_box=OSD_CROP
-            )
-            prnu_match = prnu_score >= PRNU_MATCH_THRESHOLD
+            try:
+                residual = noise_residual(cap.array)
+                prnu_score = prnu_correlate(
+                    residual, record.prnu_fingerprint, exclude_box=OSD_CROP
+                )
+                prnu_match = prnu_score >= PRNU_MATCH_THRESHOLD
+            except ValueError:
+                prnu_match = False
 
         mean_lum = mean_luminance(cap)
         sat_var = saturation_variance(cap)
         osd_decoded = ocr_osd_nonce(cap, expected=nonce)
         osd_similarity = similarity(osd_decoded, nonce) if nonce else 0.0
 
-        # If OCR isn't available (no tesseract), don't fail the physical PUF
-        # path — we still regenerated from a nonce-bound capture.
-        ocr_available = bool(osd_decoded) or _tesseract_available()
-        if ocr_available and osd_decoded:
-            osd_match = osd_similarity >= OSD_FUZZY_MATCH_THRESHOLD
+        # OSD must prove the nonce was burned into the capture pipeline.
+        # Soft-passing when OCR is empty let fixture stubs (no overlay in
+        # JPEG) pass CMOS challenge after self-enrollment.
+        if _tesseract_available():
+            if osd_decoded:
+                osd_match = osd_similarity >= OSD_FUZZY_MATCH_THRESHOLD
+            else:
+                osd_match = False
         else:
-            osd_match = True  # OSD was set; OCR optional for hackathon path
-
-        measured_bytes = bits_to_bytes(bits)
+            # No OCR binary: require the OSD crop to change when overlay text
+            # changes. Real cameras re-encode with new glyphs; stubs that only
+            # store OSD in RAM leave the crop unchanged.
+            osd_match = bool(osd_burned_in)
 
         regen_failed = False
         corrected_errors = None
         fx_result = None
-        try:
-            fx_result = fx_regenerate(measured_bytes, helper, params)
-            corrected_errors = fx_result.corrected_bit_errors
-        except RuntimeError:
+        if coords_out_of_bounds:
             regen_failed = True
+        else:
+            measured_bytes = bits_to_bytes(bits)
+            try:
+                fx_result = fx_regenerate(measured_bytes, helper, params)
+                corrected_errors = fx_result.corrected_bit_errors
+            except RuntimeError:
+                regen_failed = True
 
         address_match = False
         signature = None
-        signing_error = None
+        signing_error = (
+            "camera_resolution_mismatch" if coords_out_of_bounds else None
+        )
 
         body = {
             "cameraId": record.address,
@@ -327,7 +415,14 @@ def respond_to_challenge(
         }
 
         if regen_failed or fx_result is None:
-            signing_error = "PUF key regeneration failed"
+            if coords_out_of_bounds:
+                signing_error = signing_error or "camera_resolution_mismatch"
+            elif prnu_available and prnu_match:
+                # Same sensor (PRNU) but helper can't correct — scene/IR drift
+                # since enroll. Backend should re-enroll, not fraud-flag.
+                signing_error = "puf_enrollment_stale"
+            else:
+                signing_error = signing_error or "PUF key regeneration failed"
             body["signature"] = None
             body["signingError"] = signing_error
         else:
@@ -346,8 +441,11 @@ def respond_to_challenge(
                 body["signature"] = signature
             else:
                 body["signature"] = None
-                body["signingError"] = "regenerated_address_mismatch"
-                signing_error = body["signingError"]
+                if prnu_available and prnu_match:
+                    signing_error = "puf_enrollment_stale"
+                else:
+                    signing_error = "regenerated_address_mismatch"
+                body["signingError"] = signing_error
 
         image_hash = hashlib.sha256(cap.raw_bytes).hexdigest()
         frame_bytes = cap.raw_bytes

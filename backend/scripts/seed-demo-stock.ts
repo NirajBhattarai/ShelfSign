@@ -213,6 +213,7 @@ async function seedWarehouse(demo: DemoWarehouse, supplierId: string) {
     supplier_id: supplierId,
     camera_account: catalogAccount,
     nonce,
+    image_cid: null,
     image_hash: imageHash,
     model: "yolov8n-stock-v1",
     model_hash: modelHash,

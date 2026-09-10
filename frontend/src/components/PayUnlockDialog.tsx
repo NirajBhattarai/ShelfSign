@@ -6,32 +6,24 @@ import { useHederaWallet } from "@/lib/HederaWalletContext";
 import { ConnectWalletDialog } from "@/components/ConnectWalletDialog";
 import {
   formatPaymentAmount,
-  paymentAssetLabel,
   type PaymentRequirements,
 } from "@/lib/x402Client";
 import type { X402Challenge } from "@/lib/api";
 
 export function PayUnlockDialog({
-  title = "Unlock attested stock",
-  subtitle,
   sku,
   warehouseName,
   challenge,
   busy,
   error,
-  confirmVerb = "Pay",
   onConfirm,
   onCancel,
 }: {
-  title?: string;
-  subtitle?: string;
   sku: string;
   warehouseName: string;
   challenge: X402Challenge;
   busy: boolean;
   error: string | null;
-  /** Verb shown on the primary button before the amount, e.g. Pay / Pay & attest */
-  confirmVerb?: string;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
@@ -39,7 +31,8 @@ export function PayUnlockDialog({
   const [showConnect, setShowConnect] = useState(false);
 
   const requirements = challenge.accepts?.[0] as
-    PaymentRequirements | undefined;
+    | PaymentRequirements
+    | undefined;
   const amount = requirements
     ? formatPaymentAmount(requirements)
     : "x402 price";
@@ -50,9 +43,9 @@ export function PayUnlockDialog({
 
   return (
     <Overlay onClose={busy ? () => undefined : onCancel} wide>
-      <div className="overlay-title">{title}</div>
+      <div className="overlay-title">Unlock attested stock</div>
       <div className="overlay-sub">
-        {subtitle ?? `${sku} · ${warehouseName} · Hedera testnet x402 settle`}
+        {sku} · {warehouseName} · Hedera testnet x402 settle
       </div>
 
       <div className="order-summary-strip">
@@ -69,7 +62,9 @@ export function PayUnlockDialog({
         <div>
           <div className="detail-label">Asset</div>
           <div className="mono">
-            {paymentAssetLabel(requirements?.asset)}
+            {requirements?.asset === "0.0.0"
+              ? "HBAR"
+              : (requirements?.asset ?? "—")}
           </div>
         </div>
       </div>
@@ -92,8 +87,8 @@ export function PayUnlockDialog({
 
       {!wallet && (
         <div className="catalog-banner" style={{ marginTop: 14 }}>
-          Connect HashPack (or import a funded testnet account) to sign the
-          USDC payment.
+          Connect HashPack (or import a funded testnet account) to sign the HBAR
+          payment.
         </div>
       )}
 
@@ -135,7 +130,7 @@ export function PayUnlockDialog({
               ? wallet.mode === "walletconnect"
                 ? "Approve in wallet…"
                 : "Signing & settling…"
-              : `${confirmVerb} ${amount}`}
+              : `Pay ${amount}`}
           </button>
         )}
       </div>

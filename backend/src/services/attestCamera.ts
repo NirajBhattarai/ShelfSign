@@ -97,11 +97,11 @@ export interface FullAttestResult {
 
 async function resolveCredentials(camera: CameraForAttest) {
   const defaults = await getDefaultCameraCredentials();
-  // Prefer system_settings (shared Hikvision). Per-camera host/user/pass only
-  // when settings are absent.
-  const host = defaults?.host || camera.host;
-  const username = defaults?.username || camera.username;
-  const password = defaults?.password || camera.password;
+  // Prefer this camera row's host/user/pass so Fake Cam isn't attested
+  // against a shared Hikvision default (and vice versa).
+  const host = (camera.host || defaults?.host || "").trim();
+  const username = (camera.username || defaults?.username || "").trim();
+  const password = camera.password || defaults?.password || "";
   if (!host || !username || !password) {
     throw Object.assign(new Error("camera_credentials_missing"), {
       status: 503,
@@ -122,43 +122,55 @@ async function ensurePufEnrollment(
   username: string,
   password: string,
   visionUrl: string,
+  opts?: { force?: boolean },
 ): Promise<CameraForAttest> {
-  let needsEnroll = !camera.cmos_account;
-  try {
-    const check = await fetch(`${visionUrl}/cmos/enrollment/${camera.id}`, {
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (check.ok) {
-      const body = (await check.json()) as {
-        enrolled?: boolean;
-        cmosAccount?: string | null;
-      };
-      if (!body.enrolled) {
-        needsEnroll = true;
-      } else if (body.cmosAccount) {
-        if (
-          !camera.cmos_account ||
-          body.cmosAccount.toLowerCase() !== camera.cmos_account.toLowerCase()
-        ) {
-          await supabase
-            .from("cameras")
-            .update({
-              cmos_account: body.cmosAccount,
-              enrollment_status: "enrolled",
-            })
-            .eq("id", camera.id);
-        }
-        return {
-          ...camera,
-          cmos_account: body.cmosAccount,
-          enrollment_status: "enrolled",
+  let needsEnroll = !camera.cmos_account || Boolean(opts?.force);
+  if (opts?.force) {
+    try {
+      await fetch(`${visionUrl}/cmos/enrollment/${camera.id}`, {
+        method: "DELETE",
+        signal: AbortSignal.timeout(10_000),
+      });
+    } catch {
+      // Best-effort; enroll will overwrite if delete fails.
+    }
+  } else {
+    try {
+      const check = await fetch(`${visionUrl}/cmos/enrollment/${camera.id}`, {
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (check.ok) {
+        const body = (await check.json()) as {
+          enrolled?: boolean;
+          cmosAccount?: string | null;
         };
+        if (!body.enrolled) {
+          needsEnroll = true;
+        } else if (body.cmosAccount) {
+          if (
+            !camera.cmos_account ||
+            body.cmosAccount.toLowerCase() !== camera.cmos_account.toLowerCase()
+          ) {
+            await supabase
+              .from("cameras")
+              .update({
+                cmos_account: body.cmosAccount,
+                enrollment_status: "enrolled",
+              })
+              .eq("id", camera.id);
+          }
+          return {
+            ...camera,
+            cmos_account: body.cmosAccount,
+            enrollment_status: "enrolled",
+          };
+        }
+      } else {
+        needsEnroll = true;
       }
-    } else {
+    } catch {
       needsEnroll = true;
     }
-  } catch {
-    needsEnroll = true;
   }
 
   if (!needsEnroll && camera.cmos_account) {
@@ -178,11 +190,23 @@ async function ensurePufEnrollment(
   });
   if (!enrollRes.ok) {
     const detail = await enrollRes.text();
+    const synthetic = /synthetic_device|synthetic_replay/i.test(detail || "");
+    if (synthetic) {
+      await supabase
+        .from("cameras")
+        .update({
+          is_fake: true,
+          fraud_detected_at: new Date().toISOString(),
+          enrollment_status: "failed",
+        })
+        .eq("id", camera.id);
+    }
     throw Object.assign(new Error("enrollment_failed"), {
-      status: 502,
+      status: synthetic ? 422 : 502,
       detail:
         detail ||
         "PUF enrollment missing and live enroll failed. Check camera reachability.",
+      isFake: synthetic,
     });
   }
   const { cmosAccount } = (await enrollRes.json()) as { cmosAccount: string };
@@ -192,6 +216,8 @@ async function ensurePufEnrollment(
     .update({
       cmos_account: cmosAccount,
       enrollment_status: "enrolled",
+      is_fake: false,
+      fraud_detected_at: null,
     })
     .eq("id", camera.id);
 
@@ -227,7 +253,7 @@ async function runFullAttestationLocked(
   const { host, username, password } = await resolveCredentials(camera);
   const visionUrl = await getVisionServiceUrl();
 
-  const enrolledCamera = await ensurePufEnrollment(
+  let enrolledCamera = await ensurePufEnrollment(
     camera,
     host,
     username,
@@ -259,7 +285,7 @@ async function runFullAttestationLocked(
     });
   }
 
-  const { nonce } = opts?.nonce ? { nonce: opts.nonce } : issueNonce();
+  let { nonce } = opts?.nonce ? { nonce: opts.nonce } : issueNonce();
 
   const steps: Record<string, unknown> = {
     nonce,
@@ -272,23 +298,32 @@ async function runFullAttestationLocked(
     detection: null,
   };
 
-  let imageHash: string;
-  let cmosMatch = false;
-  let cmosScore = 0;
-  let signatureValid = false;
-  let challengeFrameBase64: string | undefined;
-  let prnuScore: number | null = null;
-  let prnuMatch = true;
-  let prnuAvailable = false;
+  type ChallengeJson = {
+    match: boolean;
+    score: number;
+    correctedBitErrors?: number;
+    signature?: string | null;
+    signingError?: string | null;
+    imageHash: string;
+    osdMatch?: boolean;
+    osdDecoded?: string;
+    frameBase64?: string | null;
+    prnuScore?: number | null;
+    prnuMatch?: boolean;
+    prnuAvailable?: boolean;
+  };
 
-  try {
+  async function postChallenge(
+    cam: CameraForAttest,
+    challengeNonce: string,
+  ): Promise<ChallengeJson> {
     const challengeRes = await fetch(`${visionUrl}/cmos/challenge`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        cameraId: enrolledCamera.id,
-        cmosAccount: enrolledCamera.cmos_account,
-        nonce,
+        cameraId: cam.id,
+        cmosAccount: cam.cmos_account,
+        nonce: challengeNonce,
         host,
         username,
         password,
@@ -303,20 +338,58 @@ async function runFullAttestationLocked(
         steps: { ...steps, challenge: { ok: false, detail } },
       });
     }
-    const challenged = (await challengeRes.json()) as {
-      match: boolean;
-      score: number;
-      correctedBitErrors?: number;
-      signature?: string | null;
-      signingError?: string | null;
-      imageHash: string;
-      osdMatch?: boolean;
-      osdDecoded?: string;
-      frameBase64?: string | null;
-      prnuScore?: number | null;
-      prnuMatch?: boolean;
-      prnuAvailable?: boolean;
-    };
+    return (await challengeRes.json()) as ChallengeJson;
+  }
+
+  let imageHash: string;
+  let cmosMatch = false;
+  let cmosScore = 0;
+  let signatureValid = false;
+  let challengeFrameBase64: string | undefined;
+  let prnuScore: number | null = null;
+  let prnuMatch = true;
+  let prnuAvailable = false;
+  let osdMatch = true;
+  let signingError: string | null = null;
+
+  try {
+    let challenged = await postChallenge(enrolledCamera, nonce);
+
+    // Same physical sensor (PRNU) but BCH helper can't correct — enrollment
+    // drifted with lighting/IR. Re-enroll once and retry; do not fraud-flag.
+    const stale =
+      !challenged.match &&
+      challenged.prnuMatch !== false &&
+      Boolean(challenged.prnuAvailable) &&
+      /puf_enrollment_stale|PUF key regeneration failed|regenerated_address_mismatch/i.test(
+        challenged.signingError || "",
+      );
+
+    if (stale) {
+      steps.enrollmentRefresh = {
+        reason: challenged.signingError,
+        prnuScore: challenged.prnuScore,
+      };
+      enrolledCamera = await ensurePufEnrollment(
+        enrolledCamera,
+        host,
+        username,
+        password,
+        visionUrl,
+        { force: true },
+      );
+      steps.enrollment = {
+        ok: true,
+        cmosAccount: enrolledCamera.cmos_account,
+        ensured: true,
+        refreshed: true,
+      };
+      // Fresh nonce after re-enroll so OSD + verify stay consistent.
+      nonce = issueNonce().nonce;
+      steps.nonce = nonce;
+      challenged = await postChallenge(enrolledCamera, nonce);
+    }
+
     cmosMatch = challenged.match;
     cmosScore = challenged.score;
     signatureValid = Boolean(challenged.signature) && challenged.match;
@@ -325,13 +398,15 @@ async function runFullAttestationLocked(
     prnuScore = challenged.prnuScore ?? null;
     prnuMatch = challenged.prnuMatch ?? true;
     prnuAvailable = Boolean(challenged.prnuAvailable);
+    osdMatch = challenged.osdMatch !== false;
+    signingError = challenged.signingError ?? null;
     steps.challenge = {
       ok: challenged.match,
       match: challenged.match,
       score: challenged.score,
       correctedBitErrors: challenged.correctedBitErrors,
       signature: challenged.signature ? "present" : null,
-      signingError: challenged.signingError ?? null,
+      signingError,
       osdMatch: challenged.osdMatch,
       osdDecoded: challenged.osdDecoded,
       imageHash,
@@ -439,14 +514,17 @@ async function runFullAttestationLocked(
     cmosFingerprintMatch: cmosMatch,
     signatureValid,
     prnuFingerprintMatch: prnuMatch,
+    osdMatch,
   });
 
   if (!verified.ok) {
-    // CMOS/PUF/signature/PRNU failed against the enrolled real sensor — mark unverified.
-    const isFraud =
-      verified.reasons.includes("cmos_mismatch") ||
-      verified.reasons.includes("signature_invalid") ||
-      verified.reasons.includes("prnu_mismatch");
+    // Fraud = synthetic stub or swapped sensor. Stale PUF (BCH fail while
+    // PRNU still matches) is enrollment drift, not impersonation.
+    const isSynthetic = /synthetic_device|synthetic_replay/i.test(
+      signingError || "",
+    );
+    const sensorSwap = prnuAvailable && prnuMatch === false;
+    const isFraud = isSynthetic || sensorSwap;
     if (isFraud) {
       await supabase
         .from("cameras")
@@ -467,6 +545,7 @@ async function runFullAttestationLocked(
         prnuScore,
         totalUnits,
         fraudFlagged: isFraud,
+        signingError,
       },
     });
   }

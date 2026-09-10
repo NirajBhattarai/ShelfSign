@@ -9,6 +9,7 @@ from src.cmos.fingerprint import (
     challenge,
     enroll,
     enrollment_address,
+    forget_enrollment,
     has_enrollment,
     match,
 )
@@ -79,6 +80,9 @@ def enroll_camera(body: EnrollRequest) -> EnrollResponse:
             username=body.username,
             password=body.password,
         )
+    except ValueError as e:
+        # synthetic_device_rejected / synthetic_replay_rejected / bad input
+        raise HTTPException(status_code=422, detail=f"enrollment_failed: {e}")
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"enrollment_failed: {e}")
     return EnrollResponse(cmosAccount=cmos_account)
@@ -90,6 +94,14 @@ def get_enrollment(camera_id: str) -> dict:
     if not has_enrollment(camera_id):
         return {"enrolled": False, "cmosAccount": None}
     return {"enrolled": True, "cmosAccount": enrollment_address(camera_id)}
+
+
+@router.delete("/enrollment/{camera_id}")
+def delete_enrollment(camera_id: str) -> dict:
+    """Forget a camera's enrollment -- call when its host/username/password
+    change, since the old record belongs to a different physical device."""
+    deleted = forget_enrollment(camera_id)
+    return {"deleted": deleted}
 
 
 @router.post("/match", response_model=MatchResponse)
@@ -146,6 +158,48 @@ def challenge_camera(body: ChallengeRequest) -> ChallengeResponse:
         prnuMatch=bool(result.get("prnuMatch", True)),
         prnuAvailable=bool(result.get("prnuAvailable")),
     )
+
+
+class DeviceCheckRequest(BaseModel):
+    host: str
+    username: str
+    password: str
+
+
+@router.post("/device-check")
+def device_check(body: DeviceCheckRequest) -> dict:
+    """Probe ISAPI deviceInfo — used when editing camera credentials so the
+    backend can flag synthetic stubs before attest."""
+    from src.cmos.device_authenticity import (
+        SyntheticDeviceError,
+        assert_physical_device,
+        device_looks_synthetic,
+        fetch_device_info,
+    )
+    from src.cmos.isapi_client import ISAPIClient, ISAPIError
+
+    try:
+        client = ISAPIClient(
+            host=body.host,
+            user=body.username,
+            password=body.password,
+            timeout=5.0,
+        )
+        info = fetch_device_info(client)
+        synthetic = device_looks_synthetic(info)
+        if not synthetic:
+            assert_physical_device(client)
+        return {
+            "ok": not synthetic,
+            "synthetic": synthetic,
+            "serialNumber": info.get("serialNumber"),
+            "model": info.get("model"),
+            "deviceName": info.get("deviceName"),
+        }
+    except SyntheticDeviceError as e:
+        return {"ok": False, "synthetic": True, "detail": str(e)}
+    except (ISAPIError, ValueError, OSError) as e:
+        raise HTTPException(status_code=502, detail=f"device_check_failed: {e}")
 
 
 @router.get("/stream")

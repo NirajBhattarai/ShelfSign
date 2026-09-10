@@ -53,13 +53,7 @@ export function formatPaymentAmount(requirements: PaymentRequirements): string {
   if (requirements.asset === "0.0.0") {
     return `${(amount / 100_000_000).toFixed(4)} HBAR`;
   }
-  // HTS fungible with 6 decimals (USDC and ShelfSign test USDC)
   return `${(amount / 1_000_000).toFixed(4)} USDC`;
-}
-
-export function paymentAssetLabel(asset: string | undefined): string {
-  if (!asset || asset === "0.0.0") return "HBAR";
-  return "USDC";
 }
 
 function toBase64Json(value: unknown): string {

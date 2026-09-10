@@ -49,7 +49,12 @@ interface AttestResult {
 }
 
 type Phase =
-  "idle" | "challenging" | "paying" | "attesting" | "done" | "failed";
+  | "idle"
+  | "challenging"
+  | "paying"
+  | "attesting"
+  | "done"
+  | "failed";
 
 const PHASE_COPY: Record<"challenging" | "paying" | "attesting", string> = {
   challenging: "Generating a fresh attestable nonce…",
@@ -179,10 +184,14 @@ export function AttestWizard({
         <div className="overlay-title">Pay & attest live stock</div>
         <div className="overlay-sub">
           {camera.label}
+          {" · "}
+          <span className="mono">{camera.host || "no host"}</span>
           {camera.is_fake ? " · Unverified camera" : " · Verified camera"}
           {camera.enrollment_status === "enrolled"
             ? " · Enrolled"
-            : " · Enrollment required"}
+            : camera.enrollment_status === "pending"
+              ? " · Will re-enroll on attest"
+              : " · Enrollment required"}
           {" · x402 required"}
         </div>
         {camera.is_fake ? (
@@ -190,8 +199,10 @@ export function AttestWizard({
             className="field-error"
             style={{ marginTop: 0, marginBottom: 16 }}
           >
-            This camera failed its last authenticity check. Resolve the feed or
-            re-enroll before publishing stock buyers can trust.
+            This camera is flagged unverified (synthetic stub or failed silicon
+            check). Attest must hit a real sensor at the host above — Edit IP /
+            login if this still points at Fake Cam (
+            <span className="mono">127.0.0.1:8788</span>).
           </div>
         ) : null}
 
@@ -216,7 +227,7 @@ export function AttestWizard({
           >
             <strong>2. Pay x402 + SiliconWitness challenge</strong>
             <p>
-              Settle USDC via x402, then drive OSD nonce + IR, regenerate the
+              Settle payment via x402, then drive OSD nonce + IR, regenerate the
               PUF key, and verify silicon identity.
             </p>
             {result?.steps.cmosMatch && (
@@ -322,7 +333,7 @@ export function AttestWizard({
                 className="btn btn-ghost"
                 style={{ flex: 1 }}
                 onClick={generateNonce}
-                disabled={busy || camera.enrollment_status !== "enrolled"}
+                disabled={busy || camera.enrollment_status === "failed"}
               >
                 {nonce ? "New nonce" : "Generate nonce"}
               </button>
@@ -330,7 +341,7 @@ export function AttestWizard({
                 className="btn btn-primary"
                 style={{ flex: 1 }}
                 onClick={startPayAndAttest}
-                disabled={busy || camera.enrollment_status !== "enrolled"}
+                disabled={busy || camera.enrollment_status === "failed"}
               >
                 {phase === "attesting" || phase === "paying"
                   ? "Pay & attest…"

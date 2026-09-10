@@ -70,7 +70,11 @@ export function scoreAttestationRisk(
   score = Math.min(score, 9999);
 
   const verdict: CreVerdict =
-    score >= slashThreshold ? "SLASH" : score >= holdThreshold ? "HOLD" : "CLEAR";
+    score >= slashThreshold
+      ? "SLASH"
+      : score >= holdThreshold
+        ? "HOLD"
+        : "CLEAR";
 
   const reasonHash = hashReasons(reasons, risk.attestationId, risk.reviewId);
 

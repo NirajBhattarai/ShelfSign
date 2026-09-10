@@ -27,6 +27,17 @@ FRAMES_DIR = Path(
 _frame_bytes: list[bytes] = []
 _frame_n = 0
 _frame_lock = threading.Lock()
+# Which video frame is "current" advances on a wall-clock schedule, not once
+# per request. Advancing per-request meant every single snapshot in a burst
+# (enroll's 12 captures, challenge's 3-sample majority vote) saw genuinely
+# different video content -- fine for a live-preview aesthetic, but it broke
+# the pixel-stability PUF's core assumption that a static aisle looks nearly
+# identical between captures a fraction of a second apart, causing spurious
+# BCH regeneration mismatches even against this camera's own enrollment.
+# Preview advances every ~0.4s for a snappier live view. Fake Cam cannot
+# enroll (synthetic device gate), so we no longer need the old 4s hold that
+# only existed to keep PUF bursts seeing near-identical frames.
+FRAME_ADVANCE_INTERVAL_S = float(os.environ.get("FAKE_CAM_FRAME_INTERVAL_S", "0.4"))
 _state = {
     "osd_text": "FAKE-CAM",
     "osd_enabled": True,
@@ -82,9 +93,9 @@ def _next_jpeg() -> bytes:
             b"\xff\xda\x00\x08\x01\x01\x00\x00?\x00\xaa\xff\xd9"
         )
     with _frame_lock:
-        _frame_n += 1
-        n = _frame_n
-    return _frame_bytes[(n - 1) % len(_frame_bytes)]
+        _frame_n += 1  # cumulative request count, exposed via /health only
+    frame_idx = int(time.time() / FRAME_ADVANCE_INTERVAL_S) % len(_frame_bytes)
+    return _frame_bytes[frame_idx]
 
 
 def _issue_nonce() -> str:

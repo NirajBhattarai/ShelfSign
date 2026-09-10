@@ -46,9 +46,9 @@ export function hcsConfigured(): boolean {
   const topic = process.env.HEDERA_HCS_TOPIC_ID?.trim() ?? "";
   return Boolean(
     process.env.HEDERA_OPERATOR_ID?.trim() &&
-    process.env.HEDERA_OPERATOR_KEY?.trim() &&
-    topic &&
-    !topic.includes("mock"),
+      process.env.HEDERA_OPERATOR_KEY?.trim() &&
+      topic &&
+      !topic.includes("mock"),
   );
 }
 
@@ -126,7 +126,6 @@ export async function publishAttestationToHcs(attestation: {
   model_hash: string;
   items: unknown;
   cmos_score?: number | null;
-  prnu_score?: number | null;
   detection_count?: number | null;
   captured_at: string;
 }): Promise<HcsPublishResult> {
@@ -141,7 +140,6 @@ export async function publishAttestationToHcs(attestation: {
     model: attestation.model,
     modelHash: attestation.model_hash,
     cmosScore: attestation.cmos_score ?? null,
-    prnuScore: attestation.prnu_score ?? null,
     detectionCount: attestation.detection_count ?? null,
     itemSkus: Array.isArray(attestation.items)
       ? (attestation.items as Array<{ sku?: string }>)
@@ -166,24 +164,6 @@ export async function publishPaymentReceiptToHcs(receipt: {
   return submitMessage({
     type: "shelfsign.x402.payment.v1",
     ...receipt,
-  });
-}
-
-export async function publishCameraEscrowToHcs(event: {
-  action: "lock" | "release" | "forfeit";
-  cameraId: string;
-  warehouseId: string;
-  supplierId: string;
-  label: string;
-  escrowAccountId: string;
-  tokenId: string;
-  amount: number;
-  transactionId: string;
-}): Promise<HcsPublishResult> {
-  return submitMessage({
-    type: "shelfsign.camera_escrow.v1",
-    ...event,
-    lockedAt: new Date().toISOString(),
   });
 }
 

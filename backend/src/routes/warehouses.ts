@@ -93,9 +93,9 @@ warehouseRouter.get("/:id/live", async (req, res) => {
   }
 
   const defaults = await getDefaultCameraCredentials();
-  const host = defaults?.host || camera.host;
-  const username = defaults?.username || camera.username;
-  const password = defaults?.password || camera.password;
+  const host = (camera.host || defaults?.host || "").trim();
+  const username = (camera.username || defaults?.username || "").trim();
+  const password = camera.password || defaults?.password || "";
   if (!host || !username || !password) {
     res.status(404).end();
     return;
@@ -245,6 +245,7 @@ interface CatalogRow {
     cmos_score: number | null;
     prnu_score: number | null;
     detection_count: number | null;
+    is_fake: boolean;
   };
   item: {
     sku: string;
@@ -324,7 +325,10 @@ warehouseRouter.get("/catalog", async (req, res) => {
           .select("sku, quantity, shelf, updated_at")
           .eq("warehouse_id", wh.id)
           .order("sku", { ascending: true }),
-        supabase.from("cameras").select("id").eq("warehouse_id", wh.id),
+        supabase
+          .from("cameras")
+          .select("id, is_fake")
+          .eq("warehouse_id", wh.id),
       ]);
       if (!stockRows?.length) return;
 
@@ -363,6 +367,13 @@ warehouseRouter.get("/catalog", async (req, res) => {
         shelf: string;
       }>;
 
+      const activeCamera = latestAtt
+        ? (cameras ?? []).find((c) => c.id === latestAtt!.camera_id)
+        : null;
+      const isFake = Boolean(
+        (activeCamera as { is_fake?: boolean } | undefined)?.is_fake,
+      );
+
       for (const stock of stockRows) {
         const detected = detectedItems.find((i) => i.sku === stock.sku);
         rows.push({
@@ -379,6 +390,7 @@ warehouseRouter.get("/catalog", async (req, res) => {
                 cmos_score: latestAtt.cmos_score,
                 prnu_score: latestAtt.prnu_score,
                 detection_count: latestAtt.detection_count,
+                is_fake: isFake,
               }
             : {
                 id: null,
@@ -391,6 +403,7 @@ warehouseRouter.get("/catalog", async (req, res) => {
                 cmos_score: null,
                 prnu_score: null,
                 detection_count: null,
+                is_fake: false,
               },
           item: {
             sku: stock.sku,

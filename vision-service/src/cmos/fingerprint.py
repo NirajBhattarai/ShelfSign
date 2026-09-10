@@ -50,6 +50,18 @@ def has_enrollment(camera_id: str) -> bool:
     return _record_path(camera_id).exists()
 
 
+def forget_enrollment(camera_id: str) -> bool:
+    """Delete an on-disk enrollment (+ PRNU fingerprint) so the next
+    enroll/attest starts clean -- used when a camera's host/username/
+    password change, since the old record's coordinates/helper/fingerprint
+    belong to whatever device the OLD credentials pointed at. Idempotent:
+    returns whether anything was actually deleted."""
+    existed = has_enrollment(camera_id)
+    _record_path(camera_id).unlink(missing_ok=True)
+    _prnu_path(camera_id).unlink(missing_ok=True)
+    return existed
+
+
 def enrollment_address(camera_id: str) -> Optional[str]:
     record = _load_record(camera_id)
     return record.address if record else None

@@ -240,7 +240,7 @@ export function requireX402Payment(opts: {
           x402Version: 2,
           accepts: [requirements],
           resource,
-          error: "Payment required (x402)",
+          error: "Payment required to access attested stock query",
         };
         res.setHeader("Content-Type", "application/json");
         res.setHeader(
