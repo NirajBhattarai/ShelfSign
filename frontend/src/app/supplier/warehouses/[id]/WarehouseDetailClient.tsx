@@ -5,6 +5,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { apiGet, apiPost, apiPut } from "@/lib/api";
 import { Badge, EmptyState, LedStatus, Ledger, Overlay } from "@/components/ui";
 import { AttestWizard } from "@/components/AttestWizard";
+import { StakeCameraDialog } from "@/components/StakeCameraDialog";
 import { useToast } from "@/components/toast";
 import { useSupplierData, type Camera } from "../../SupplierDataContext";
 
@@ -68,7 +69,7 @@ export default function WarehouseDetailClient() {
   const [viewingCamera, setViewingCamera] = useState<Camera | null>(null);
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
   const [attestingCamera, setAttestingCamera] = useState<Camera | null>(null);
-  const [restakingId, setRestakingId] = useState<string | null>(null);
+  const [stakingCamera, setStakingCamera] = useState<Camera | null>(null);
   const [editingCamera, setEditingCamera] = useState<Camera | null>(null);
   const [editHost, setEditHost] = useState("");
   const [editUsername, setEditUsername] = useState("");
@@ -183,24 +184,6 @@ export default function WarehouseDetailClient() {
       );
     } finally {
       setSavingCamera(false);
-    }
-  }
-
-  async function restakeEscrow(cam: Camera) {
-    setRestakingId(cam.id);
-    try {
-      await apiPost<Camera>(`/cameras/${cam.id}/restake`);
-      await refetchCameras();
-      showToast("Escrow restaked — fraud flag cleared.", "success");
-    } catch (err) {
-      showToast(
-        err instanceof Error
-          ? err.message
-          : "Restake failed — check backend escrow config and try again.",
-        "error",
-      );
-    } finally {
-      setRestakingId(null);
     }
   }
 
@@ -358,8 +341,8 @@ export default function WarehouseDetailClient() {
         {warehouseCameras.map((cam) => {
           const attestBusy = Boolean(
             cam.attest_locked_at &&
-              Date.now() - new Date(cam.attest_locked_at).getTime() <
-                3 * 60 * 1000,
+            Date.now() - new Date(cam.attest_locked_at).getTime() <
+              3 * 60 * 1000,
           );
           return (
             <div key={cam.id} className="ledger-row">
@@ -378,19 +361,18 @@ export default function WarehouseDetailClient() {
                     <span className="meta-chip" data-tone="danger">
                       Unverified
                     </span>
-                  ) : (
+                  ) : cam.escrow_status === "locked" ? (
                     <span className="meta-chip" data-tone="ok">
-                      Verified camera
+                      Staked
+                    </span>
+                  ) : (
+                    <span className="meta-chip" data-tone="warn">
+                      Needs stake
                     </span>
                   )}
                   {cam.escrow_status === "forfeited" ? (
                     <span className="meta-chip" data-tone="danger">
                       Bond slashed
-                    </span>
-                  ) : cam.enrollment_status !== "failed" &&
-                    cam.escrow_status !== "locked" ? (
-                    <span className="meta-chip" data-tone="danger">
-                      Bond required
                     </span>
                   ) : null}
                   {attestBusy ? (
@@ -406,14 +388,13 @@ export default function WarehouseDetailClient() {
                     {cam.fraud_detected_at
                       ? ` · ${new Date(cam.fraud_detected_at).toLocaleString()}`
                       : ""}
-                    . Buyers see Unverified. Edit IP does not clear this — use{" "}
-                    <strong>Pay & attest</strong> on a real sensor to verify and
-                    set the flag back to Verified.
+                    . Buyers see Unverified. <strong>Stake 10 ℏ</strong>, then{" "}
+                    <strong>Attest live</strong> on a real sensor.
                   </div>
                 ) : null}
-                {cam.escrow_status === "locked" && (
+                {cam.escrow_status === "locked" && !cam.is_fake && (
                   <div className="row-sub" style={{ marginTop: 4 }}>
-                    HBAR bond locked
+                    Stake locked — ready to Attest live
                     {cam.escrow_amount != null
                       ? ` · ${(cam.escrow_amount / 100_000_000).toFixed(2)} ℏ`
                       : ""}
@@ -433,7 +414,7 @@ export default function WarehouseDetailClient() {
                 )}
                 {cam.escrow_status === "forfeited" && (
                   <div className="row-sub" style={{ marginTop: 4 }}>
-                    HBAR bond slashed for fraud
+                    Legitimacy stake slashed for fraud
                     {cam.escrow_forfeited_at
                       ? ` · ${new Date(cam.escrow_forfeited_at).toLocaleString()}`
                       : ""}
@@ -449,15 +430,24 @@ export default function WarehouseDetailClient() {
                         </a>
                       </>
                     ) : null}
-                    . Attestation is paused until the bond is restaked.
+                    . Stake 10 ℏ again, then Attest live.
                   </div>
                 )}
-                {cam.enrollment_status !== "failed" && !cam.escrow_status && (
+                {cam.enrollment_status !== "failed" &&
+                  cam.escrow_status !== "locked" && (
+                    <div className="row-sub" style={{ marginTop: 4 }}>
+                      Step 1: <strong>Stake 10 ℏ</strong> → Step 2:{" "}
+                      <strong>Attest live</strong>. Buyers see Verified only
+                      after attest succeeds.
+                    </div>
+                  )}
+                {cam.escrow_status === "locked" && cam.is_fake ? (
                   <div className="row-sub" style={{ marginTop: 4 }}>
-                    No HBAR bond on file for this camera. Attestation is paused
-                    until 10 ℏ is staked.
+                    Bond still locked (not slashed — never Verified).{" "}
+                    <strong>Attest live</strong> on a real sensor to clear
+                    Unverified.
                   </div>
-                )}
+                ) : null}
               </div>
               <div
                 style={{
@@ -467,53 +457,48 @@ export default function WarehouseDetailClient() {
                   flexWrap: "wrap",
                 }}
               >
-                {cam.enrollment_status !== "failed" &&
-                  cam.escrow_status !== "locked" && (
-                    <button
-                      className="btn btn-primary"
-                      style={{ padding: "8px 12px" }}
-                      disabled={restakingId === cam.id}
-                      onClick={() => restakeEscrow(cam)}
-                    >
-                      {restakingId === cam.id
-                        ? "Staking…"
-                        : cam.escrow_status === "forfeited"
-                          ? "Restake 10 HBAR"
-                          : "Stake 10 HBAR"}
-                    </button>
-                  )}
-                {/* Always allow attest when bonded — including Unverified /
-                    enrollment_failed cameras so the supplier can re-verify
-                    after pointing IP at a real sensor. */}
-                <button
-                  className="btn btn-primary"
-                  style={{ padding: "8px 12px" }}
-                  disabled={attestBusy || cam.escrow_status !== "locked"}
-                  title={
-                    cam.escrow_status === "forfeited"
-                      ? "Bond was slashed — restake before attesting"
-                      : cam.escrow_status !== "locked"
-                        ? "No HBAR bond on file — stake before attesting"
-                        : attestBusy
-                          ? "Another attestation is running on this camera"
-                          : cam.is_fake
-                            ? "Unverified — successful attest clears the flag"
-                            : cam.enrollment_status === "pending" ||
-                                cam.enrollment_status === "failed"
-                              ? "Will re-enroll against the current host, then attest"
-                              : undefined
-                  }
-                  onClick={() => setAttestingCamera(cam)}
-                >
-                  {attestBusy
-                    ? "Attesting…"
-                    : cam.is_fake
-                      ? "Pay & attest to verify"
-                      : cam.enrollment_status === "pending" ||
-                          cam.enrollment_status === "failed"
-                        ? "Re-enroll & attest"
-                        : "Pay & attest"}
-                </button>
+                {(() => {
+                  const needsStake = cam.escrow_status !== "locked";
+                  const canAttest = cam.escrow_status === "locked";
+                  return (
+                    <>
+                      <button
+                        className={
+                          needsStake ? "btn btn-primary" : "btn btn-ghost"
+                        }
+                        style={{ padding: "8px 12px" }}
+                        disabled={!needsStake || !!stakingCamera}
+                        title={
+                          needsStake
+                            ? "Pay 10 ℏ via x402 into the escrow vault"
+                            : "Stake already locked"
+                        }
+                        onClick={() => setStakingCamera(cam)}
+                      >
+                        {stakingCamera?.id === cam.id
+                          ? "Staking…"
+                          : needsStake
+                            ? "Stake 10 ℏ"
+                            : "Staked"}
+                      </button>
+                      <button
+                        className={
+                          canAttest ? "btn btn-primary" : "btn btn-ghost"
+                        }
+                        style={{ padding: "8px 12px" }}
+                        disabled={!canAttest || attestBusy}
+                        title={
+                          canAttest
+                            ? "Run live CMOS attest — Verified for buyers only after this succeeds"
+                            : "Stake 10 ℏ first"
+                        }
+                        onClick={() => setAttestingCamera(cam)}
+                      >
+                        {attestBusy ? "Attesting…" : "Attest live"}
+                      </button>
+                    </>
+                  );
+                })()}
                 <button
                   className="link-btn"
                   style={{ marginTop: 0 }}
@@ -814,6 +799,22 @@ export default function WarehouseDetailClient() {
           </div>
           <img src={streamUrl} alt="" className="camera-live-view" />
         </Overlay>
+      )}
+
+      {stakingCamera && (
+        <StakeCameraDialog
+          camera={
+            cameras.find((c) => c.id === stakingCamera.id) ?? stakingCamera
+          }
+          onClose={() => setStakingCamera(null)}
+          onStaked={() => {
+            void refetchCameras();
+            showToast(
+              "10 ℏ stake locked — Attest live to become Verified for buyers.",
+              "success",
+            );
+          }}
+        />
       )}
 
       {attestingCamera && (

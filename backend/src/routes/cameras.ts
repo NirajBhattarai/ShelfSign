@@ -1,11 +1,7 @@
 import { Readable } from "node:stream";
 import { Router } from "express";
 import { requireAuth, type AuthedRequest } from "../middleware/auth.js";
-import {
-  escrowConfigured,
-  lockCameraEscrow,
-  slashCameraForFraud,
-} from "../services/escrow.js";
+import { escrowConfigured } from "../services/escrow.js";
 import { supabase } from "../services/supabase.js";
 import {
   getDefaultCameraCredentials,
@@ -19,13 +15,22 @@ import {
 } from "../services/attestCamera.js";
 import {
   buildPaymentRequirements,
+  getStakePayTo,
   requireX402Payment,
+  stakeAmountHbar,
+  type PaidRequest,
 } from "../services/x402.js";
 
 export const cameraRouter = Router();
 
 const ESCROW_CAMERA_COLUMNS =
   "id, warehouse_id, supplier_id, label, host, enrollment_status, cmos_account, is_fake, fraud_detected_at, escrow_status, escrow_amount, escrow_token_id, escrow_account_id, escrow_tx_id, escrow_hashscan_url, escrow_locked_at, escrow_forfeited_at, escrow_slash_tx_id, escrow_slash_hashscan_url, created_at";
+
+function hashscanTxUrl(txId: string | null | undefined): string | null {
+  if (!txId) return null;
+  const net = process.env.HEDERA_NETWORK === "mainnet" ? "mainnet" : "testnet";
+  return `https://hashscan.io/${net}/transaction/${txId}`;
+}
 
 // Near-live camera view for the supplier dashboard: an <img> tag can't set
 // an Authorization header, so this route authenticates via a query-param
@@ -236,46 +241,20 @@ cameraRouter.post("/", async (req: AuthedRequest, res) => {
         cmosAccount: string;
       };
 
-      // HBAR bond is mandatory: a camera that can't lock escrow never
-      // becomes "enrolled", regardless of CMOS/PUF success.
-      let lock;
-      try {
-        lock = await lockCameraEscrow({
-          cameraId: camera.id,
-          warehouseId: camera.warehouse_id,
-          supplierId: camera.supplier_id,
-          label: camera.label,
-        });
-      } catch (err) {
-        console.error("camera escrow lock failed", err);
-        await supabase
-          .from("cameras")
-          .update({ enrollment_status: "failed", cmos_account: cmosAccount })
-          .eq("id", camera.id);
-        res.status(502).json({
-          error: "escrow_lock_failed",
-          detail: err instanceof Error ? err.message : "unknown",
-        });
-        return;
-      }
-
+      // PUF enroll only — legitimacy stake is a separate x402 transfer of
+      // ESCROW_AMOUNT_HBAR (default 10 ℏ) via POST /cameras/:id/stake.
       const { data: enrolled } = await supabase
         .from("cameras")
         .update({
           enrollment_status: "enrolled",
           cmos_account: cmosAccount,
-          escrow_status: "locked",
-          escrow_amount: lock.amount,
-          escrow_token_id: lock.tokenId,
-          escrow_account_id: lock.escrowAccountId,
-          escrow_tx_id: lock.transactionId,
-          escrow_hashscan_url: lock.hashscanUrl,
-          escrow_locked_at: new Date().toISOString(),
         })
         .eq("id", camera.id)
         .select(ESCROW_CAMERA_COLUMNS)
         .single();
-      res.status(201).json(enrolled ?? camera);
+      res
+        .status(201)
+        .json(enrolled ?? { ...camera, cmos_account: cmosAccount });
       return;
     }
 
@@ -321,11 +300,10 @@ interface AttestBody {
   nonce?: string;
 }
 
-const ATTEST_PAYMENT_DESCRIPTION =
-  "ShelfSign live camera attestation (CMOS + nonce + YOLO → HCS)";
-
-/** x402 challenge only — CMOS/YOLO attest must not run until pay is confirmed. */
-cameraRouter.get("/:id/attest/challenge", async (req: AuthedRequest, res) => {
+// SiliconWitness challenge-response → YOLO → verified attestation.
+// Free for suppliers; buyers pay only for live warehouse re-attest
+// (POST /warehouses/:id/count-live).
+cameraRouter.post("/:id/attest", async (req: AuthedRequest, res) => {
   if (req.user!.role !== "supplier") {
     res.status(403).json({ error: "supplier_only" });
     return;
@@ -333,7 +311,9 @@ cameraRouter.get("/:id/attest/challenge", async (req: AuthedRequest, res) => {
 
   const { data: camera } = await supabase
     .from("cameras")
-    .select("id")
+    .select(
+      "id, supplier_id, warehouse_id, label, host, username, password, cmos_account, enrollment_status, is_fake, escrow_status",
+    )
     .eq("id", req.params.id)
     .eq("supplier_id", req.user!.id)
     .maybeSingle();
@@ -343,16 +323,63 @@ cameraRouter.get("/:id/attest/challenge", async (req: AuthedRequest, res) => {
     return;
   }
 
+  const body = (req.body ?? {}) as AttestBody;
   try {
-    const resource = `/cameras/${camera.id}/attest`;
+    const result = await runFullAttestation(camera, {
+      nonce: body.nonce,
+      lockedBy: req.user!.id,
+    });
+    res.status(201).json({
+      attestation: result.attestation,
+      steps: result.steps,
+    });
+  } catch (err) {
+    const { status, body: payload } = attestErrorPayload(err);
+    res.status(status).json(payload);
+  }
+});
+
+// Supplier legitimacy stake: pay ESCROW_AMOUNT_HBAR (default 10 ℏ) via x402
+// from the supplier wallet into the escrow vault. Required before attest.
+cameraRouter.get("/:id/stake/challenge", async (req: AuthedRequest, res) => {
+  if (req.user!.role !== "supplier") {
+    res.status(403).json({ error: "supplier_only" });
+    return;
+  }
+
+  const { data: camera } = await supabase
+    .from("cameras")
+    .select("id, escrow_status, is_fake")
+    .eq("id", req.params.id)
+    .eq("supplier_id", req.user!.id)
+    .maybeSingle();
+
+  if (!camera) {
+    res.status(404).json({ error: "camera_not_found" });
+    return;
+  }
+
+  if (camera.escrow_status === "locked") {
+    res.status(400).json({
+      error: "already_locked",
+      detail: "This camera already has an active 10 ℏ stake.",
+    });
+    return;
+  }
+
+  try {
+    const amountHbar = stakeAmountHbar();
+    const resource = `/cameras/${camera.id}/stake`;
     const requirements = await buildPaymentRequirements(
       resource,
-      ATTEST_PAYMENT_DESCRIPTION,
+      `ShelfSign camera legitimacy stake (${amountHbar} HBAR)`,
+      { amountHbar, payTo: getStakePayTo() },
     );
     res.json({
       x402Version: 2,
       accepts: [requirements],
       resource,
+      amountHbar,
     });
   } catch (err) {
     res.status(503).json({
@@ -362,15 +389,21 @@ cameraRouter.get("/:id/attest/challenge", async (req: AuthedRequest, res) => {
   }
 });
 
-// SiliconWitness challenge-response → YOLO → verified attestation.
-// Requires settled x402 payment (no free attest).
 cameraRouter.post(
-  "/:id/attest",
+  "/:id/stake",
   requireX402Payment({
-    description: ATTEST_PAYMENT_DESCRIPTION,
-    resourcePath: (req) => `/cameras/${req.params.id}/attest`,
+    description: "ShelfSign camera legitimacy stake (10 HBAR)",
+    resourcePath: (req) => `/cameras/${req.params.id}/stake`,
+    amountHbar: (() => {
+      try {
+        return stakeAmountHbar();
+      } catch {
+        return 10;
+      }
+    })(),
+    payTo: getStakePayTo,
   }),
-  async (req: AuthedRequest, res) => {
+  async (req: PaidRequest & AuthedRequest, res) => {
     if (req.user!.role !== "supplier") {
       res.status(403).json({ error: "supplier_only" });
       return;
@@ -378,9 +411,7 @@ cameraRouter.post(
 
     const { data: camera } = await supabase
       .from("cameras")
-      .select(
-        "id, supplier_id, warehouse_id, label, host, username, password, cmos_account, enrollment_status, is_fake, escrow_status",
-      )
+      .select("id, warehouse_id, supplier_id, label, escrow_status, is_fake")
       .eq("id", req.params.id)
       .eq("supplier_id", req.user!.id)
       .maybeSingle();
@@ -390,111 +421,45 @@ cameraRouter.post(
       return;
     }
 
-    const body = (req.body ?? {}) as AttestBody;
+    if (camera.escrow_status === "locked") {
+      res.status(400).json({
+        error: "already_locked",
+        detail: "This camera already has an active 10 ℏ stake.",
+      });
+      return;
+    }
+
     try {
-      const result = await runFullAttestation(camera, {
-        nonce: body.nonce,
-        lockedBy: req.user!.id,
-      });
-      res.status(201).json({
-        attestation: result.attestation,
-        steps: result.steps,
-      });
+      const amountTinybars = Number(req.x402?.requirements.amount ?? "0");
+      const txId = req.x402?.settlement.transaction ?? null;
+      const payTo = req.x402?.requirements.payTo ?? getStakePayTo();
+
+      // Bond only — does NOT mark Verified. Clean attest clears is_fake.
+      const { data: updated } = await supabase
+        .from("cameras")
+        .update({
+          escrow_status: "locked",
+          escrow_amount: amountTinybars,
+          escrow_token_id: "0.0.0",
+          escrow_account_id: payTo,
+          escrow_tx_id: txId,
+          escrow_hashscan_url: hashscanTxUrl(txId),
+          escrow_locked_at: new Date().toISOString(),
+        })
+        .eq("id", camera.id)
+        .select(ESCROW_CAMERA_COLUMNS)
+        .single();
+
+      res.status(200).json(updated ?? camera);
     } catch (err) {
-      const { status, body: payload } = attestErrorPayload(err);
-      res.status(status).json(payload);
+      console.error("camera x402 stake failed", err);
+      res.status(502).json({
+        error: "stake_failed",
+        detail: err instanceof Error ? err.message : "unknown",
+      });
     }
   },
 );
-
-// HBAR bond is mandatory for attestation. Locks (or relocks) it for a camera
-// that has none — after a bond slash/forfeiture, or a legacy camera enrolled
-// before escrow was mandatory. Clears the fraud flag once locked so
-// attestation can turn back on.
-cameraRouter.post("/:id/restake", async (req: AuthedRequest, res) => {
-  if (req.user!.role !== "supplier") {
-    res.status(403).json({ error: "supplier_only" });
-    return;
-  }
-
-  const { data: camera } = await supabase
-    .from("cameras")
-    .select("id, warehouse_id, supplier_id, label, escrow_status, is_fake")
-    .eq("id", req.params.id)
-    .eq("supplier_id", req.user!.id)
-    .maybeSingle();
-
-  if (!camera) {
-    res.status(404).json({ error: "camera_not_found" });
-    return;
-  }
-
-  if (camera.escrow_status === "locked" && !camera.is_fake) {
-    res.status(400).json({
-      error: "already_locked",
-      detail: "This camera already has an active HBAR bond.",
-    });
-    return;
-  }
-
-  if (!escrowConfigured()) {
-    res.status(503).json({ error: "escrow_not_configured" });
-    return;
-  }
-
-  try {
-    // Fraud with bond still showing locked (e.g. prior slash tx failed):
-    // finish the slash before accepting a new stake.
-    if (camera.escrow_status === "locked" && camera.is_fake) {
-      await slashCameraForFraud(camera.id);
-      const { data: afterSlash } = await supabase
-        .from("cameras")
-        .select("escrow_status")
-        .eq("id", camera.id)
-        .maybeSingle();
-      if (afterSlash?.escrow_status === "locked") {
-        res.status(502).json({
-          error: "slash_incomplete",
-          detail:
-            "Fraud is flagged but the on-chain bond slash did not complete. Fix escrow config and retry restake.",
-        });
-        return;
-      }
-    }
-
-    const lock = await lockCameraEscrow({
-      cameraId: camera.id,
-      warehouseId: camera.warehouse_id,
-      supplierId: camera.supplier_id,
-      label: camera.label,
-    });
-
-    const { data: updated } = await supabase
-      .from("cameras")
-      .update({
-        escrow_status: "locked",
-        escrow_amount: lock.amount,
-        escrow_token_id: lock.tokenId,
-        escrow_account_id: lock.escrowAccountId,
-        escrow_tx_id: lock.transactionId,
-        escrow_hashscan_url: lock.hashscanUrl,
-        escrow_locked_at: new Date().toISOString(),
-        is_fake: false,
-        fraud_detected_at: null,
-      })
-      .eq("id", camera.id)
-      .select(ESCROW_CAMERA_COLUMNS)
-      .single();
-
-    res.status(200).json(updated ?? camera);
-  } catch (err) {
-    console.error("camera escrow restake failed", err);
-    res.status(502).json({
-      error: "restake_failed",
-      detail: err instanceof Error ? err.message : "unknown",
-    });
-  }
-});
 
 // Update a camera's own host/username/password (e.g. for the demo swap:
 // point a verified camera at Fake Cam, or point an unverified one back at

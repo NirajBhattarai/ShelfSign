@@ -283,17 +283,16 @@ async function runFullAttestationLocked(
     });
   }
 
-  if (camera.is_fake || camera.escrow_status !== "locked") {
-    // HBAR bond is mandatory — covers a slashed bond (forfeited) and a
-    // camera that was never staked at all (null/released, e.g. pre-mandatory
-    // legacy rows). Fraud flag stays set until POST /cameras/:id/restake.
-    const forfeited = camera.is_fake || camera.escrow_status === "forfeited";
+  if (camera.escrow_status !== "locked") {
+    // HBAR bond is mandatory. is_fake alone does not block attest — after
+    // stake, a clean attest is what clears fraud and marks Verified.
+    const forfeited = camera.escrow_status === "forfeited";
     throw Object.assign(new Error("escrow_required"), {
       status: 402,
       detail: forfeited
-        ? "This camera's HBAR bond was slashed for fraud. The supplier must restake escrow before attestation can resume."
-        : "This camera has no active HBAR bond. The supplier must stake escrow before attestation can run.",
-      isFake: forfeited,
+        ? "This camera's HBAR bond was slashed for fraud. Stake 10 ℏ via x402 before attestation can resume."
+        : "This camera has no active HBAR bond. Stake 10 ℏ via x402 before attestation can run.",
+      isFake: Boolean(camera.is_fake) || forfeited,
     });
   }
 
@@ -592,8 +591,16 @@ async function runFullAttestationLocked(
     });
   }
 
-  // Fraud / is_fake is cleared only by POST /cameras/:id/restake (new bond).
-  // A clean attestation must not revive a slashed camera.
+  // Clean attest while bonded → Verified for buyers (clears is_fake).
+  // Stake alone never marks Verified; slash only applies after Verified.
+
+  await supabase
+    .from("cameras")
+    .update({
+      is_fake: false,
+      fraud_detected_at: null,
+    })
+    .eq("id", enrolledCamera.id);
 
   await supabase
     .from("attestations")

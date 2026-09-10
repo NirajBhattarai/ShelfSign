@@ -25,8 +25,9 @@ Responsibilities:
   — `POST /cameras` refuses without it. Fraud calls `slashCameraForFraud()`
   (forfeit bond + `is_fake`). Only `POST /cameras/:id/restake` clears fraud and
   re-enables attestation. Do not bring back Arc; bond is not optional.
-- x402 retail: **0.01 HBAR** (`X402_PRICE_PER_QUERY_HBAR`, asset `0.0.0`) —
-  keep backend and frontend consistent. Not USDC.
+- x402 retail: **0.01 HBAR** on buyer `POST /warehouses/:id/count-live` only
+  (`X402_PRICE_PER_QUERY_HBAR`, asset `0.0.0`). Viewing attested stock and
+  supplier camera attest are free.
 
 Always re-derive the current attestation shape from
 `backend/src/services/chain.ts` / `verify.ts` and the README rather than

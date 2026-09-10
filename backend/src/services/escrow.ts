@@ -337,9 +337,10 @@ export async function forfeitCameraEscrow(input: {
 }
 
 /**
- * Fraud confirmed: flag the camera and, if it has an active bond, slash it.
- * Re-staking (see cameras.ts POST /:id/restake) is what clears is_fake again
- * — a clean attestation alone no longer does.
+ * Fraud confirmed: always flag the camera Unverified.
+ * On-chain slash only if this camera was already buyer-Verified
+ * (had a successful attestation). First-time / pre-verify failures
+ * keep the 10 ℏ bond so the supplier can fix and attest.
  */
 export async function slashCameraForFraud(cameraId: string): Promise<void> {
   const { data: camera } = await supabase
@@ -352,12 +353,20 @@ export async function slashCameraForFraud(cameraId: string): Promise<void> {
 
   if (!camera) return;
 
+  const { count: attestCount } = await supabase
+    .from("attestations")
+    .select("id", { count: "exact", head: true })
+    .eq("camera_id", cameraId);
+
+  const wasVerified = (attestCount ?? 0) > 0;
+
   const patch: Record<string, unknown> = {
     is_fake: true,
     fraud_detected_at: new Date().toISOString(),
   };
 
   if (
+    wasVerified &&
     camera.escrow_status === "locked" &&
     camera.escrow_amount &&
     camera.escrow_token_id
@@ -379,6 +388,10 @@ export async function slashCameraForFraud(cameraId: string): Promise<void> {
       console.error("camera escrow forfeit failed", err);
       // Still flag the camera as fake even if the on-chain slash failed.
     }
+  } else if (!wasVerified) {
+    console.info(
+      `camera ${cameraId}: fraud flagged but stake not slashed (never verified)`,
+    );
   }
 
   await supabase.from("cameras").update(patch).eq("id", cameraId);

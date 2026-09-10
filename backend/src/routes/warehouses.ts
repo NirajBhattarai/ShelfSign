@@ -370,9 +370,10 @@ warehouseRouter.get("/catalog", async (req, res) => {
       const activeCamera = latestAtt
         ? (cameras ?? []).find((c) => c.id === latestAtt!.camera_id)
         : null;
-      const isFake = Boolean(
-        (activeCamera as { is_fake?: boolean } | undefined)?.is_fake,
-      );
+      // Buyer Verified only after a live attest exists and camera is not fraud.
+      const isFake =
+        !latestAtt ||
+        Boolean((activeCamera as { is_fake?: boolean } | undefined)?.is_fake);
 
       for (const stock of stockRows) {
         const detected = detectedItems.find((i) => i.sku === stock.sku);
@@ -403,7 +404,7 @@ warehouseRouter.get("/catalog", async (req, res) => {
                 cmos_score: null,
                 prnu_score: null,
                 detection_count: null,
-                is_fake: false,
+                is_fake: true,
               },
           item: {
             sku: stock.sku,
@@ -707,6 +708,12 @@ warehouseRouter.get("/:id/stock/:sku", async (req: AuthedRequest, res) => {
     detectedCount: detected?.count ?? 0,
   };
 
+  // Buyer Verified only after warehouse/camera attest succeeded (!is_fake + row).
+  const cameraFraud = Boolean(
+    (camera as { is_fake?: boolean } | undefined)?.is_fake,
+  );
+  const unverified = !matchedAtt || cameraFraud;
+
   res.json({
     warehouse: {
       id: warehouse.id,
@@ -733,14 +740,14 @@ warehouseRouter.get("/:id/stock/:sku", async (req: AuthedRequest, res) => {
       cmos_score: matchedAtt?.cmos_score ?? null,
       prnu_score: matchedAtt?.prnu_score ?? null,
       detection_count: matchedAtt?.detection_count ?? null,
-      is_fake: Boolean((camera as { is_fake?: boolean } | undefined)?.is_fake),
+      is_fake: unverified,
     },
     liveStreamUrl,
     camera: camera
       ? {
           id: camera.id,
           label: camera.label,
-          isFake: Boolean((camera as { is_fake?: boolean }).is_fake),
+          isFake: unverified,
           fraudDetectedAt:
             (camera as { fraud_detected_at?: string | null })
               .fraud_detected_at ?? null,
@@ -760,7 +767,7 @@ warehouseRouter.get("/:id/stock/:sku", async (req: AuthedRequest, res) => {
       countLiveLabel: "Pay & attest warehouse",
       countLiveBusy: "Paying & attesting…",
       countLiveHint:
-        "Pay with x402 to re-run live CMOS + nonce proof. Fake/stub cameras are flagged Unverified in the database.",
+        "Pay with x402 to re-run live CMOS + nonce proof. Verified only after a successful attest; stake is not slashed until then.",
     },
   });
 });
@@ -818,7 +825,7 @@ warehouseRouter.post(
       const result = await runFullAttestation(camera, {
         lockedBy: req.user!.id,
       });
-      // Restake clears is_fake; attest no longer does. Echo clean status.
+      // Clean attest marks Verified (is_fake cleared in runFullAttestation).
       res.status(201).json({
         cameraId: result.cameraId,
         cameraLabel: result.cameraLabel,

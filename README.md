@@ -18,7 +18,7 @@ Buyers cannot reliably see real supplier inventory. Spreadsheets and chat update
 4. Capture a live frame bound to that nonce; verify it matches the enrolled CMOS fingerprint.
 5. Run vision (YOLO / PyTorch) → stock counts.
 6. Publish a **signed stock attestation** (image hash + CMOS account + nonce + counts).
-7. Buyers browse attested stock and place buy orders. Pay-per-query access is live via **Hedera x402**. A **camera HBAR bond** (supplier locks 10 ℏ per camera on enroll — mandatory, no bond means no enrollment; easy to fund from the Hedera faucet) is forfeited on fraud and must be restaked to clear the fraud flag.
+7. Buyers browse attested stock for free and place buy orders. **Live warehouse re-attest** is paid via **Hedera x402** (~0.01 ℏ). A **camera HBAR bond** (supplier stakes **10 ℏ via x402** before attest — mandatory; faucet-friendly on testnet) is forfeited only after a Verified camera fails authenticity checks.
 
 **Tagline:** Live stock from _this_ camera, _right now_ — silicon identity + nonce, not a spreadsheet.
 
@@ -28,9 +28,9 @@ Buyers cannot reliably see real supplier inventory. Spreadsheets and chat update
 
 ![ShelfSign architecture: silicon identity + live nonce → attested stock → Hedera HCS + x402 unlock](docs/architecture.png)
 
-Fraud path (live): CMOS/synthetic fail → `slashCameraForFraud()` → `is_fake` + bond forfeited → `POST /cameras/:id/restake` clears fraud and turns attestation back on.
+Fraud path (live): CMOS/synthetic fail → flag Unverified; **slash 10 ℏ only if the camera was already Verified** (had a successful attest). Stake alone never Verifies. Clean attest clears `is_fake`. After a Verified slash, supplier `POST /cameras/:id/stake` (x402 10 ℏ) then Attest live.
 
-End-to-end path: **enroll** (CMOS PUF + HBAR bond) → **challenge** (server nonce / OSD) → **attest** (CMOS match + YOLO) → **publish** (Supabase + Hedera HCS) → **unlock** (buyer x402). Supplier and buyer UIs talk to the Express API; vision (FastAPI / YOLO) drives the camera; Supabase holds state; Hedera carries HCS receipts and the escrow vault.
+End-to-end path: **enroll** (CMOS PUF) → **stake** (supplier x402 10 ℏ) → **attest** (CMOS + YOLO → Verified) → **publish** (Supabase + Hedera HCS) → **browse free** / **live re-attest (buyer x402)**. Supplier and buyer UIs talk to the Express API; vision (FastAPI / YOLO) drives the camera; Supabase holds state; Hedera carries HCS receipts and the escrow vault.
 
 ---
 
@@ -85,7 +85,7 @@ Sign (camera-bound account / supplier key)
        ↓
 Attestation → Hedera HCS (live). Camera enroll → mandatory HBAR bond lock (Hedera escrow vault)
        ↓
-Buyer browses attested stock → x402 unlock → places buy order
+Buyer browses attested stock (free) → optional live re-attest (x402) → places buy order
 ```
 
 ### Anti-fake layers
@@ -154,7 +154,7 @@ Checkboxes mark what is done in the repo today. Unchecked items are still open.
 - [x] Vision service — YOLO stock detection (FastAPI + Ultralytics/PyTorch)
 - [x] CMOS fingerprint endpoints (PUF enroll/match/challenge; SiliconWitness path)
 - [x] Hedera HCS attestation publishing (`npm run setup:hcs`)
-- [x] x402 paywalled stock queries (Blocky402 + Hedera exact scheme)
+- [x] x402 on buyer live warehouse attest only (`POST /warehouses/:id/count-live`; viewing attested stock is free)
 - [x] Camera fraud / unverified flag + concurrent attest lock (`0008` / `0009`)
 - [x] `fake-cam/` ISAPI stub for controlled CMOS-reject demos
 - [x] Classical PRNU residual correlation (`vision-service/src/cmos/prnu.py` — wavelet-domain denoising + fingerprint correlation, layered on top of the pixel-stability PUF signing key; informational by default, see `SHELFSIGN_ENFORCE_PRNU`)
@@ -235,8 +235,8 @@ That is a LAN alias / subnet issue, not CMOS or auth. See **[docs/hikvision-lan.
 - **Backend:** Node / Express (TypeScript) — nonce, attestations, cameras, warehouses, orders, HCS publish, x402
 - **Vision:** Python FastAPI — YOLO stock detection + CMOS / PUF (SiliconWitness-style) fingerprinting
 - **Data:** Supabase (Postgres + RLS)
-- **Chain (live):** Hedera testnet — HCS attestation log + x402 pay-per-query (**0.01 HBAR** via Blocky402)
-- **Bond lifecycle (live):** lock on camera enroll → fraud detection forfeits bond → attestation blocked → supplier `POST /cameras/:id/restake` relocks 10 HBAR and clears the flag
+- **Chain (live):** Hedera testnet — HCS attestation log + x402 on buyer live warehouse attest (**0.01 HBAR** via Blocky402)
+- **Bond lifecycle (live):** supplier x402 stake 10 ℏ → clean attest marks Verified → fraud after Verified forfeits bond → supplier stakes again then attests
 
 ---
 
@@ -338,7 +338,7 @@ Buyer stock catalog loads from `GET /warehouses/catalog` (search, filters, sort,
 3. Live aisle frame bound to nonce
 4. CMOS match ✓ + YOLO counts
 5. Publish attestation → **Hedera HCS** (HashScan topic link)
-6. Buyer unlocks stock via **x402** and places an order
+6. Buyer views attested stock (free), optionally pays **x402** to live re-attest, then places an order
 7. Supplier confirms / fulfills the order
 8. Replay old frame with stale nonce → **reject**
 9. Point enrolled cam at `fake-cam` stub (or phone photo) → **CMOS fail** + unverified flag

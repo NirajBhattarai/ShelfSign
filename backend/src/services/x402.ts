@@ -43,18 +43,28 @@ function caipNetwork(): string {
     : "hedera:testnet";
 }
 
-/** Retail price in tinybars — always native HBAR (0.01 ℏ default). */
-export function priceAmount(): string {
+/** Price in tinybars — native HBAR. Override for stake (10 ℏ) vs query (0.01 ℏ). */
+export function priceAmount(amountHbar?: number): string {
   const hbar = Number(
-    process.env.X402_PRICE_PER_QUERY_HBAR ??
+    amountHbar ??
+      process.env.X402_PRICE_PER_QUERY_HBAR ??
       process.env.X402_PRICE_PER_QUERY_USDC ?? // legacy env alias
       "0.01",
   );
   if (!Number.isFinite(hbar) || hbar <= 0) {
-    throw new Error("X402_PRICE_PER_QUERY_HBAR must be a positive HBAR amount");
+    throw new Error("x402 amount must be a positive HBAR value");
   }
   // 1 HBAR = 100_000_000 tinybars
   return String(Math.max(1, Math.round(hbar * 100_000_000)));
+}
+
+/** Camera legitimacy stake size (default 10 ℏ). */
+export function stakeAmountHbar(): number {
+  const hbar = Number(process.env.ESCROW_AMOUNT_HBAR ?? "10");
+  if (!Number.isFinite(hbar) || hbar <= 0) {
+    throw new Error("ESCROW_AMOUNT_HBAR must be a positive HBAR amount");
+  }
+  return hbar;
 }
 
 /** Native HBAR only for retail x402 (token id 0.0.0). */
@@ -79,6 +89,17 @@ export function getPayTo(): string {
     );
   }
   return payTo;
+}
+
+/** Prefer escrow vault so the 10 ℏ stake lands where slash can forfeit it. */
+export function getStakePayTo(): string {
+  const vault = process.env.HEDERA_ESCROW_ACCOUNT_ID?.trim();
+  if (!vault || vault.includes("mock")) {
+    throw new Error(
+      "Set HEDERA_ESCROW_ACCOUNT_ID — camera stakes must pay into the escrow vault.",
+    );
+  }
+  return vault;
 }
 
 export async function discoverFeePayer(): Promise<string> {
@@ -106,13 +127,14 @@ export async function discoverFeePayer(): Promise<string> {
 export async function buildPaymentRequirements(
   resource: string,
   description: string,
+  opts?: { amountHbar?: number; payTo?: string },
 ): Promise<PaymentRequirements> {
   const feePayer = await discoverFeePayer();
   return {
     scheme: "exact",
     network: caipNetwork(),
-    amount: priceAmount(),
-    payTo: getPayTo(),
+    amount: priceAmount(opts?.amountHbar),
+    payTo: opts?.payTo?.trim() || getPayTo(),
     maxTimeoutSeconds: 300,
     asset: x402Asset(),
     description,
@@ -236,15 +258,22 @@ export type PaidRequest = Request & {
 export function requireX402Payment(opts: {
   description: string;
   resourcePath?: (req: Request) => string;
+  /** Override default query price (e.g. 10 for camera stake). */
+  amountHbar?: number;
+  /** Override payTo (e.g. escrow vault for stakes). */
+  payTo?: string | (() => string);
 }) {
   return async (req: PaidRequest, res: Response, next: NextFunction) => {
     try {
       const resource =
         opts.resourcePath?.(req) ??
         `${req.protocol}://${req.get("host")}${req.originalUrl}`;
+      const payTo =
+        typeof opts.payTo === "function" ? opts.payTo() : opts.payTo;
       const requirements = await buildPaymentRequirements(
         resource,
         opts.description,
+        { amountHbar: opts.amountHbar, payTo },
       );
       const payment = paymentHeader(req);
 
@@ -253,7 +282,7 @@ export function requireX402Payment(opts: {
           x402Version: 2,
           accepts: [requirements],
           resource,
-          error: "Payment required to access attested stock query",
+          error: "Payment required",
         };
         res.setHeader("Content-Type", "application/json");
         res.setHeader(

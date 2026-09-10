@@ -1,6 +1,6 @@
 ---
 name: backend-dev
-description: Use for any work inside backend/ — the Node/Express/TypeScript API that issues nonces, verifies attestations, gateways x402-paywalled stock queries, and talks to Hedera (mandatory camera HBAR bond via escrow.ts). Trigger on "backend", "API route", "nonce challenge", "x402", "attestation verify", "Hedera", "escrow".
+description: Use for any work inside backend/ — the Node/Express/TypeScript API that issues nonces, verifies attestations, gateways x402 on buyer live warehouse attest, and talks to Hedera (mandatory camera HBAR bond via escrow.ts). Trigger on "backend", "API route", "nonce challenge", "x402", "attestation verify", "Hedera", "escrow".
 tools: Read, Edit, Write, Bash, Grep, Glob
 model: sonnet
 ---
@@ -15,8 +15,9 @@ cameras (via vision-service) and buyers. Core responsibilities:
    — OSD/OCR nonce, CMOS PUF challenge, YOLO, verify, HCS publish, slash on fraud.
    Prefer `POST /cameras/:id/attest` and buyer `count-live` over the legacy
    client-trusted `POST /attestations` ingest.
-3. Serve x402-paywalled stock queries (`src/routes/stock.ts`,
-   `src/services/x402.ts`) at **0.01 HBAR** (`X402_PRICE_PER_QUERY_HBAR`).
+3. Gate buyer live warehouse re-attest with x402 (`POST /warehouses/:id/count-live`
+   via `src/services/x402.ts`) at **0.01 HBAR**. Viewing attested stock and
+   supplier `POST /cameras/:id/attest` are free.
 
 Conventions:
 
