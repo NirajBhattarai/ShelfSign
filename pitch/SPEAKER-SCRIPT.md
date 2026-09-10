@@ -3,6 +3,7 @@
 Native Next.js deck (no Reveal.js).
 
 - **Open:** http://localhost:3000/pitch
+- **Fullscreen:** http://localhost:3000/pitch?fullscreen=1 (tap the gate, or press `F` / use **Full** in the nav)
 - **Code:** `frontend/src/app/pitch/`
 - **Assets:** `frontend/public/pitch/assets/`
 
@@ -10,6 +11,7 @@ Native Next.js deck (no Reveal.js).
 
 - `→` / `Space` / tap next — advance fragment, then slide
 - `←` — back
+- `F` — toggle fullscreen
 - Swipe on touch devices
 
 ## One-sentence story

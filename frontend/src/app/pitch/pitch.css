@@ -6,15 +6,15 @@
   --surface: #dee4ec; /* recessed */
   --hairline: rgba(14, 22, 32, 0.12);
   --hairline-strong: rgba(14, 22, 32, 0.22);
-  --paper: #0e1620; /* primary text (charcoal) */
-  --muted: #5a6573; /* secondary text */
-  --dim: #87919e; /* tertiary */
+  --paper: #060a10; /* primary text (near-black) */
+  --muted: #2f3844; /* secondary text */
+  --dim: #4a5563; /* tertiary */
   --copper: #1e6bff; /* azure accent */
   --copper2: #4d8fff; /* bright azure */
   --verified: #1e6bff;
   --failed: #c2473a; /* clear red on light */
   --pending: #b07a2e; /* amber warning only for status */
-  --slate: #6b7685;
+  --slate: #3d4654;
   --cool-panel: #f2f5f9;
   --warm-glow: rgba(30, 107, 255, 0.12);
   --accent-rgb: 30, 107, 255;
@@ -79,7 +79,7 @@ body {
 }
 .pitch .slide-number {
   font-family: "IBM Plex Mono", monospace;
-  font-size: 11px;
+  font-size: 13px;
   color: var(--dim);
   background: transparent;
   right: 20px;
@@ -254,7 +254,7 @@ body {
   top: 18px;
   right: 22px;
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.32em;
+  font-size: 0.36em;
   letter-spacing: 0.18em;
   color: var(--copper2);
   display: flex;
@@ -284,7 +284,7 @@ body {
 
 .kicker {
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.36em;
+  font-size: 0.4em;
   letter-spacing: 0.2em;
   text-transform: uppercase;
   color: var(--copper);
@@ -520,7 +520,7 @@ body {
 }
 .cam-chain .step {
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.38em;
+  font-size: 0.42em;
   letter-spacing: 0.14em;
   color: #f2f5f9;
   display: flex;
@@ -538,7 +538,7 @@ body {
 }
 .cam-chain .arrow {
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.28em;
+  font-size: 0.32em;
   color: rgba(242, 245, 249, 0.45);
   padding: 5px 0 5px 2px;
 }
@@ -550,7 +550,7 @@ body {
   display: flex;
   justify-content: space-between;
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.28em;
+  font-size: 0.32em;
   letter-spacing: 0.12em;
   color: rgba(242, 245, 249, 0.7);
   z-index: 2;
@@ -592,7 +592,7 @@ body {
 }
 .media-card .stamp .warn {
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.34em;
+  font-size: 0.38em;
   letter-spacing: 0.16em;
   color: #ff8b7e;
   margin-bottom: 8px;
@@ -616,7 +616,7 @@ body {
   align-items: center;
   justify-content: space-between;
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.36em;
+  font-size: 0.4em;
   letter-spacing: 0.12em;
   color: var(--pending);
 }
@@ -636,7 +636,7 @@ body {
   background: var(--surface);
   padding: 12px 14px;
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.32em;
+  font-size: 0.36em;
   letter-spacing: 0.12em;
   color: var(--muted);
   position: relative;
@@ -676,7 +676,7 @@ body {
 }
 .vs-panel .eyebrow {
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.34em;
+  font-size: 0.38em;
   letter-spacing: 0.16em;
   margin-bottom: 1.3em;
 }
@@ -728,7 +728,7 @@ body {
   align-items: center;
   justify-content: center;
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.32em;
+  font-size: 0.36em;
   letter-spacing: 0.1em;
   color: var(--muted);
   z-index: 2;
@@ -792,7 +792,7 @@ body {
 }
 .insight-box .lab {
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.32em;
+  font-size: 0.36em;
   letter-spacing: 0.14em;
   color: var(--dim);
   margin-bottom: 0.9em;
@@ -815,7 +815,7 @@ body {
 }
 .insight-fns li {
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.28em;
+  font-size: 0.32em;
   letter-spacing: 0.04em;
   color: var(--muted);
   padding-left: 0.9em;
@@ -841,7 +841,7 @@ body {
 .insight-vs {
   align-self: center;
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.34em;
+  font-size: 0.38em;
   letter-spacing: 0.14em;
   color: var(--dim);
 }
@@ -855,7 +855,7 @@ body {
 }
 .glow-chip {
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.38em;
+  font-size: 0.42em;
   letter-spacing: 0.14em;
   padding: 12px 18px;
   border: 1px solid rgba(30, 107, 255, 0.55);
@@ -914,7 +914,7 @@ body {
 }
 .flow .node {
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.34em;
+  font-size: 0.38em;
   letter-spacing: 0.1em;
   padding: 10px 14px;
   background: var(--surface);
@@ -944,14 +944,14 @@ body {
 .flow .arr {
   color: var(--copper);
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.32em;
+  font-size: 0.36em;
 }
 
 .solution-tech {
   margin: 0.85em 0 0;
   max-width: 52em;
   font-family: "IBM Plex Sans", sans-serif;
-  font-size: 0.38em;
+  font-size: 0.42em;
   line-height: 1.45;
   color: var(--muted);
   letter-spacing: -0.01em;
@@ -976,7 +976,7 @@ body {
   left: 14px;
   bottom: 12px;
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.28em;
+  font-size: 0.32em;
   letter-spacing: 0.14em;
   background: rgba(247, 249, 252, 0.8);
   border: 1px solid var(--hairline);
@@ -1030,14 +1030,14 @@ body {
 }
 .puf-legend-title {
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.34em;
+  font-size: 0.38em;
   letter-spacing: 0.12em;
   color: var(--copper2);
   margin-bottom: 0.35em;
 }
 .puf-legend-body {
   font-family: "IBM Plex Sans", sans-serif;
-  font-size: 0.34em;
+  font-size: 0.38em;
   line-height: 1.4;
   color: var(--muted);
   letter-spacing: -0.01em;
@@ -1118,7 +1118,7 @@ body {
 }
 .stage .num {
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.28em;
+  font-size: 0.32em;
   letter-spacing: 0.16em;
   color: var(--copper);
   margin-bottom: 12px;
@@ -1153,7 +1153,7 @@ body {
 }
 .stage .name {
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.34em;
+  font-size: 0.38em;
   letter-spacing: 0.08em;
   color: var(--paper);
   margin-bottom: auto;
@@ -1162,7 +1162,7 @@ body {
 }
 .stage .detail {
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.24em;
+  font-size: 0.28em;
   letter-spacing: 0.06em;
   color: var(--muted);
   border-top: 1px solid var(--hairline);
@@ -1192,7 +1192,7 @@ body {
 }
 .pipe-cue-num {
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.36em;
+  font-size: 0.4em;
   letter-spacing: 0.14em;
   color: var(--copper);
   flex-shrink: 0;
@@ -1215,7 +1215,7 @@ body {
 }
 .pipe-cue-fns {
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.28em;
+  font-size: 0.32em;
   letter-spacing: 0.02em;
   color: var(--copper2);
   line-height: 1.4;
@@ -1308,7 +1308,7 @@ body {
 }
 .layer-idx {
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.28em;
+  font-size: 0.32em;
   letter-spacing: 0.12em;
   color: var(--dim);
   align-self: flex-start;
@@ -1334,7 +1334,7 @@ body {
 }
 .layer .lname {
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.36em;
+  font-size: 0.4em;
   letter-spacing: 0.1em;
   color: var(--paper);
   line-height: 1.15;
@@ -1343,7 +1343,7 @@ body {
   color: var(--copper2);
 }
 .layer .ldesc {
-  font-size: 0.34em;
+  font-size: 0.38em;
   color: var(--muted);
   line-height: 1.35;
 }
@@ -1367,7 +1367,7 @@ body {
 }
 .who-role {
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.34em;
+  font-size: 0.38em;
   letter-spacing: 0.16em;
   color: var(--copper);
   margin-bottom: 1.2em;
@@ -1402,7 +1402,7 @@ body {
   margin-bottom: 0.55em;
 }
 .who-center p {
-  font-size: 0.3em;
+  font-size: 0.34em;
   color: var(--dim);
 }
 
@@ -1503,7 +1503,7 @@ body {
 }
 .who-k {
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.36em;
+  font-size: 0.4em;
   letter-spacing: 0.14em;
   color: rgba(242, 245, 249, 0.7);
   margin-bottom: 12px;
@@ -1572,7 +1572,7 @@ body {
 }
 .who-mid-kicker {
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.36em;
+  font-size: 0.4em;
   letter-spacing: 0.16em;
   color: var(--copper);
 }
@@ -1593,7 +1593,7 @@ body {
 }
 .who-mid-roles .who-role {
   margin-bottom: 0.55em;
-  font-size: 0.34em;
+  font-size: 0.38em;
 }
 .who-mid-roles ol {
   margin: 0;
@@ -1604,7 +1604,7 @@ body {
 }
 .who-mid-roles li {
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.36em;
+  font-size: 0.4em;
   letter-spacing: 0.04em;
   color: var(--muted);
   line-height: 1.3;
@@ -1618,7 +1618,7 @@ body {
 }
 .who-mid-note {
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.3em;
+  font-size: 0.34em;
   letter-spacing: 0.06em;
   color: var(--dim);
   margin: 10px 0 0;
@@ -1687,7 +1687,7 @@ body {
   left: 12px;
   bottom: 12px;
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.26em;
+  font-size: 0.3em;
   letter-spacing: 0.14em;
   background: rgba(247, 249, 252, 0.82);
   border: 1px solid var(--hairline);
@@ -1718,7 +1718,7 @@ body {
   left: 10px;
   bottom: 10px;
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.24em;
+  font-size: 0.28em;
   letter-spacing: 0.12em;
   background: rgba(247, 249, 252, 0.82);
   border: 1px solid var(--hairline);
@@ -1788,7 +1788,7 @@ body {
 }
 .metric .unit {
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.32em;
+  font-size: 0.36em;
   letter-spacing: 0.14em;
   color: var(--copper);
 }
@@ -1828,7 +1828,7 @@ body {
   left: 8px;
   bottom: 8px;
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.24em;
+  font-size: 0.28em;
   letter-spacing: 0.12em;
   background: rgba(247, 249, 252, 0.8);
   border: 1px solid var(--hairline);
@@ -1844,7 +1844,7 @@ body {
 }
 .tech {
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.3em;
+  font-size: 0.34em;
   letter-spacing: 0.1em;
   color: var(--muted);
   border: 1px solid var(--hairline);
@@ -1853,7 +1853,7 @@ body {
 }
 .tech-plus {
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.28em;
+  font-size: 0.32em;
   color: var(--dim);
 }
 
@@ -1985,7 +1985,7 @@ body {
 }
 .close-cta-label {
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.32em;
+  font-size: 0.36em;
   letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--copper2);
@@ -2034,7 +2034,7 @@ body {
   align-items: center;
   gap: 8px;
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.3em;
+  font-size: 0.34em;
   letter-spacing: 0.1em;
   color: rgba(242, 245, 249, 0.88);
   padding: 10px 12px;
@@ -2065,7 +2065,7 @@ body {
   align-items: center;
   gap: 10px;
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.28em;
+  font-size: 0.32em;
   letter-spacing: 0.14em;
   color: rgba(242, 245, 249, 0.55);
 }
@@ -2095,7 +2095,7 @@ body {
 /* ticker */
 .ticker {
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.28em;
+  font-size: 0.32em;
   letter-spacing: 0.1em;
   color: var(--dim);
   margin-top: 1.4em;
@@ -2186,11 +2186,11 @@ body {
   .hud-tag {
     top: 10px;
     right: 12px;
-    font-size: 0.28em;
+    font-size: 0.32em;
     letter-spacing: 0.12em;
   }
   .kicker {
-    font-size: 0.32em;
+    font-size: 0.36em;
     margin-bottom: 0.6em;
   }
   .headline {
@@ -2233,7 +2233,7 @@ body {
     margin-top: 8px;
   }
   .cam-chain .step {
-    font-size: 0.34em;
+    font-size: 0.38em;
   }
   .problem-grid {
     height: auto;
@@ -2246,7 +2246,7 @@ body {
   }
   .doubt {
     padding: 12px 14px;
-    font-size: 0.34em;
+    font-size: 0.38em;
   }
   .fake-strip {
     grid-template-columns: 1fr;
@@ -2293,7 +2293,7 @@ body {
     font-size: 0.85em;
   }
   .who-mid-roles li {
-    font-size: 0.38em;
+    font-size: 0.42em;
   }
   .insight-compare {
     grid-template-columns: 1fr;
@@ -2312,7 +2312,7 @@ body {
     max-height: 28vh;
   }
   .sol-teach-lede {
-    font-size: 0.36em;
+    font-size: 0.4em;
   }
   .who-col {
     min-height: 0;
@@ -2335,7 +2335,7 @@ body {
     flex-wrap: wrap;
   }
   .break-badge {
-    font-size: 0.34em;
+    font-size: 0.38em;
     padding: 10px 14px;
   }
   .rail {
@@ -2416,7 +2416,7 @@ body {
     font-size: 0.95em;
   }
   .close-proofs li {
-    font-size: 0.28em;
+    font-size: 0.32em;
   }
   .close-photo {
     animation: none;
@@ -2449,7 +2449,7 @@ body {
     height: 200px;
   }
   .cam-meta {
-    font-size: 0.24em;
+    font-size: 0.28em;
   }
   .cam-chain {
     left: 14px;
@@ -2461,29 +2461,29 @@ body {
     gap: 8px;
   }
   .glow-chip {
-    font-size: 0.32em;
+    font-size: 0.36em;
     padding: 10px 12px;
   }
   .flow .node {
-    font-size: 0.28em;
+    font-size: 0.32em;
     padding: 8px 10px;
   }
   .tech-row {
     gap: 6px;
   }
   .tech {
-    font-size: 0.26em;
+    font-size: 0.3em;
     padding: 7px 9px;
   }
   .ticker {
-    font-size: 0.26em;
+    font-size: 0.3em;
     max-width: 100%;
   }
   .cta {
     font-size: 1em;
   }
   .close-meta {
-    font-size: 0.26em;
+    font-size: 0.3em;
   }
 }
 
@@ -2610,7 +2610,7 @@ body {
   align-items: center;
   gap: 10px;
   font-family: var(--font-mono), "IBM Plex Mono", monospace;
-  font-size: 11px;
+  font-size: 13px;
   letter-spacing: 0.08em;
   color: var(--dim);
 }
@@ -2639,7 +2639,7 @@ body {
   min-width: 44px;
   padding: 0 12px;
   font-family: inherit;
-  font-size: 10px;
+  font-size: 12px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
@@ -2672,7 +2672,7 @@ body {
 .pitch-fs-gate-hint {
   text-align: center;
   font-family: "IBM Plex Mono", monospace;
-  font-size: 11px;
+  font-size: 13px;
   letter-spacing: 0.1em;
   color: rgba(242, 245, 249, 0.55);
 }
@@ -2913,7 +2913,7 @@ body {
 }
 .duel-eyebrow {
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.3em;
+  font-size: 0.34em;
   letter-spacing: 0.16em;
 }
 .duel-eyebrow.bad {
@@ -2924,7 +2924,7 @@ body {
 }
 .duel-stamp {
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.26em;
+  font-size: 0.3em;
   letter-spacing: 0.14em;
   padding: 5px 8px;
   border: 1px solid currentColor;
@@ -2972,7 +2972,7 @@ body {
 }
 .duel-card-tag {
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.28em;
+  font-size: 0.32em;
   letter-spacing: 0.1em;
   color: var(--dim);
   border: 1px solid var(--hairline);
@@ -2982,12 +2982,12 @@ body {
 }
 .duel-card-title {
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.36em;
+  font-size: 0.4em;
   letter-spacing: 0.1em;
   color: var(--paper);
 }
 .duel-card-sub {
-  font-size: 0.28em;
+  font-size: 0.32em;
   color: var(--dim);
   margin-top: 3px;
   font-family: "IBM Plex Sans", sans-serif;
@@ -3040,7 +3040,7 @@ body {
   display: grid;
   place-items: center;
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.32em;
+  font-size: 0.36em;
   letter-spacing: 0.12em;
   color: var(--muted);
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
@@ -3095,7 +3095,7 @@ body {
   justify-content: space-between;
   gap: 8px;
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.24em;
+  font-size: 0.28em;
   letter-spacing: 0.1em;
   color: rgba(14, 22, 32, 0.82);
   text-shadow: none;
@@ -3133,7 +3133,7 @@ body {
 }
 .need-num {
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.28em;
+  font-size: 0.32em;
   letter-spacing: 0.1em;
   color: var(--copper);
 }
@@ -3144,14 +3144,14 @@ body {
 }
 .need-copy strong {
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.34em;
+  font-size: 0.38em;
   letter-spacing: 0.1em;
   font-weight: 600;
   color: var(--paper);
 }
 .need-copy em {
   font-style: normal;
-  font-size: 0.26em;
+  font-size: 0.3em;
   color: var(--dim);
   font-family: "IBM Plex Sans", sans-serif;
 }
@@ -3175,7 +3175,7 @@ body {
   border: 1px solid var(--hairline);
   background: var(--panel);
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.36em;
+  font-size: 0.4em;
   letter-spacing: 0.1em;
 }
 .verdict-pill span {

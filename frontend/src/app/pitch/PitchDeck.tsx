@@ -748,52 +748,6 @@ function SlideWho(_p: SlideProps) {
   );
 }
 
-function SlideDemo({ step }: SlideProps) {
-  return (
-    <>
-      <Viewfinder />
-      <Hud>DEMO PATH</Hud>
-      <div className="shell top">
-        <div className="kicker enter-up">LIVE DEMO</div>
-        <h2 className="headline wide enter-up d1">
-          Let&apos;s try to break the proof.
-        </h2>
-        <div className="demo-stage">
-          <div className="device enter-scale d2">
-            <div className="chrome">
-              <i />
-              <i />
-              <i />
-            </div>
-            <img src={`${A}/ui-live-view.png`} alt="Live camera view" />
-            <div className="badge">01 · ENROLL · LIVE VIEW</div>
-          </div>
-          <div className="demo-side">
-            <div className="mini-device enter-right d3">
-              <img src={`${A}/ui-stock-detail.png`} alt="Stock detail" />
-              <div className="badge">02 · ATTEST</div>
-            </div>
-            <div className="mini-device enter-right d4">
-              <img src={`${A}/ui-x402-unlock.png`} alt="x402 unlock" />
-              <div className="badge">03 · x402 UNLOCK</div>
-            </div>
-          </div>
-        </div>
-        <div className="break-row">
-          <Frag show={step > 0} className="break-badge">
-            <span>REPLAY (old nonce)</span>
-            <span className="mark">✕</span>
-          </Frag>
-          <Frag show={step > 1} className="break-badge">
-            <span>FAKE CAM (no PUF)</span>
-            <span className="mark">✕</span>
-          </Frag>
-        </div>
-      </div>
-    </>
-  );
-}
-
 function SlideShipped(_p: SlideProps) {
   return (
     <>
@@ -926,7 +880,6 @@ const SLIDES: {
   { id: "pipeline", steps: 7, render: (p) => <SlidePipeline {...p} /> },
   { id: "stack", steps: 8, render: (p) => <SlideStack {...p} /> },
   { id: "who", steps: 0, bleed: true, render: (p) => <SlideWho {...p} /> },
-  { id: "demo", steps: 2, render: (p) => <SlideDemo {...p} /> },
   { id: "shipped", steps: 0, render: (p) => <SlideShipped {...p} /> },
   { id: "close", steps: 0, bleed: true, render: (p) => <SlideClose {...p} /> },
 ];

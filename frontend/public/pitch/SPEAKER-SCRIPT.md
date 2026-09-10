@@ -42,9 +42,8 @@ Buyers get stock proof from **this camera chip, right now** — not a signed JPE
 6. **Pipeline** — Enroll → bond → challenge → witness → detect → verify → publish (function names in cue).
 7. **Anti-fake stack** — Eight layers; each blocks a different cheat.
 8. **Who** — Fake cam (no PUF) vs real CMOS + roles.
-9. **Demo** — Try to break it: replay (old nonce) ✕ · fake cam (no PUF) ✕.
-10. **Shipped** — Bond, x402 price, nonce TTL, real UI.
-11. **Close** — Chip ID · right now · noise match · stable key · on-chain · pay to see.
+9. **Shipped** — Bond, x402 price, nonce TTL, real UI.
+10. **Close** — Chip ID · right now · noise match · stable key · on-chain · pay to see.
 
 ## Solution slide — teach in 30 seconds
 
