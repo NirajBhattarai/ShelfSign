@@ -1,6 +1,8 @@
 import "./loadEnv.js";
 import cors from "cors";
 import express from "express";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { nonceRouter } from "./routes/nonce.js";
 import { attestationRouter } from "./routes/attestations.js";
@@ -15,6 +17,9 @@ import { x402Router } from "./routes/x402.js";
 
 const app = express();
 const port = process.env.PORT ?? 4000;
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// Served from the Next public copy (source of truth after migrating off pitch/index.html)
+const pitchDir = path.resolve(__dirname, "../../frontend/public/pitch");
 
 app.use(cors());
 // Raised from the default 100kb so a warehouse photo (sent as a base64
@@ -32,6 +37,34 @@ app.get("/health/hcs", (_req, res) => {
   });
 });
 
+/** Pitch deck lives in the Next app at /pitch (no Reveal.js static HTML). */
+app.get("/pitch/meta", (_req, res) => {
+  const frontend =
+    process.env.PUBLIC_FRONTEND_URL?.replace(/\/$/, "") ||
+    "http://localhost:3000";
+  res.json({
+    name: "ShelfSign Pitch",
+    path: `${frontend}/pitch`,
+    slides: 11,
+    format: "next.js",
+    tagline:
+      "Camera-backed stock, signed from the silicon — attested with a live nonce.",
+  });
+});
+app.get(["/pitch", "/pitch/"], (_req, res) => {
+  const frontend =
+    process.env.PUBLIC_FRONTEND_URL?.replace(/\/$/, "") ||
+    "http://localhost:3000";
+  res.redirect(302, `${frontend}/pitch`);
+});
+app.use(
+  "/pitch/assets",
+  express.static(pitchDir + "/assets", {
+    index: false,
+    redirect: false,
+  }),
+);
+
 app.use("/nonce", nonceRouter);
 app.use("/attestations", attestationRouter);
 app.use("/stock", stockRouter);
@@ -47,5 +80,8 @@ app.listen(port, () => {
   console.log(`ShelfSign backend listening on :${port}`);
   console.log(
     `HCS topic: ${process.env.HEDERA_HCS_TOPIC_ID?.trim() || "(not configured)"}`,
+  );
+  console.log(
+    `Pitch deck: ${process.env.PUBLIC_FRONTEND_URL || "http://localhost:3000"}/pitch`,
   );
 });

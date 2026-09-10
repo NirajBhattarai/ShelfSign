@@ -2,9 +2,10 @@ import "dotenv/config";
 import { createHash } from "node:crypto";
 import { supabase } from "../src/services/supabase.js";
 
-// Seeds warehouses + catalog cameras + attestations for demo suppliers.
-// Catalog is Chair / Monitor / Table only (matches YOLO stock classes).
-// Safe to re-run: warehouses reused; attestations replaced.
+// Seeds warehouses + cameras + verified attestations for demo.
+// Half cameras → real Hikvision (HIKVISION_*), half → fake-cam stub.
+// All rows are Verified (is_fake=false, enrolled) for a clean demo start.
+// Safe to re-run: warehouses reused; cameras/attestations/stock replaced.
 
 interface StockItem {
   sku: string;
@@ -103,6 +104,31 @@ const DEMO_WAREHOUSES: DemoWarehouse[] = [
   },
 ];
 
+function realHost(): string {
+  const host = process.env.HIKVISION_HOST?.trim() || "192.168.50.64";
+  const port = process.env.HIKVISION_PORT?.trim();
+  if (port && port !== "80" && !host.includes(":")) return `${host}:${port}`;
+  return host;
+}
+
+function camCreds(index: number) {
+  const useReal = index % 2 === 0;
+  if (useReal) {
+    return {
+      kind: "hikvision" as const,
+      host: realHost(),
+      username: process.env.HIKVISION_USER?.trim() || "admin",
+      password: process.env.HIKVISION_PASS?.trim() || "",
+    };
+  }
+  return {
+    kind: "fake-cam" as const,
+    host: process.env.FAKE_CAM_HOST_PORT?.trim() || "127.0.0.1:8788",
+    username: process.env.FAKE_CAM_USER?.trim() || "admin",
+    password: process.env.FAKE_CAM_PASS?.trim() || "FakeCamDemo1!",
+  };
+}
+
 async function findUserIdByEmail(email: string): Promise<string | null> {
   let page = 1;
   for (;;) {
@@ -124,7 +150,18 @@ function hash(input: string) {
   return createHash("sha256").update(input).digest("hex");
 }
 
-async function seedWarehouse(demo: DemoWarehouse, supplierId: string) {
+async function seedWarehouse(
+  demo: DemoWarehouse,
+  supplierId: string,
+  index: number,
+) {
+  const creds = camCreds(index);
+  if (creds.kind === "hikvision" && !creds.password) {
+    throw new Error(
+      "HIKVISION_PASS missing in backend/.env — needed for real camera half",
+    );
+  }
+
   const { data: existing } = await supabase
     .from("warehouses")
     .select("id")
@@ -161,6 +198,7 @@ async function seedWarehouse(demo: DemoWarehouse, supplierId: string) {
   }
 
   const catalogAccount = `catalog_${hash(demo.name).slice(0, 12)}`;
+  const cmosAccount = `0x${hash(`cmos:${demo.name}:${creds.kind}`).slice(0, 40)}`;
 
   const { data: existingCam } = await supabase
     .from("cameras")
@@ -171,34 +209,34 @@ async function seedWarehouse(demo: DemoWarehouse, supplierId: string) {
 
   let cameraId = existingCam?.id as string | undefined;
 
+  const cameraRow = {
+    warehouse_id: warehouseId,
+    supplier_id: supplierId,
+    label: demo.cameraLabel,
+    host: creds.host,
+    username: creds.username,
+    password: creds.password,
+    // Demo-ready: Verified + enrolled (live attest can still flip fake-cam later)
+    enrollment_status: "enrolled",
+    cmos_account: cmosAccount,
+    is_fake: false,
+    fraud_detected_at: null,
+  };
+
   if (!cameraId) {
     const { data, error } = await supabase
       .from("cameras")
-      .insert({
-        warehouse_id: warehouseId,
-        supplier_id: supplierId,
-        label: demo.cameraLabel,
-        cmos_account: null,
-        enrollment_status: "pending",
-        host: null,
-        username: null,
-        password: null,
-      })
+      .insert(cameraRow)
       .select("id")
       .single();
     if (error || !data) throw error ?? new Error(`Failed camera ${demo.name}`);
     cameraId = data.id;
   } else {
-    await supabase
+    const { error } = await supabase
       .from("cameras")
-      .update({
-        host: null,
-        username: null,
-        password: null,
-        enrollment_status: "pending",
-        cmos_account: null,
-      })
+      .update(cameraRow)
       .eq("id", cameraId);
+    if (error) throw error;
   }
 
   await supabase.from("attestations").delete().eq("camera_id", cameraId);
@@ -213,7 +251,6 @@ async function seedWarehouse(demo: DemoWarehouse, supplierId: string) {
     supplier_id: supplierId,
     camera_account: catalogAccount,
     nonce,
-    image_cid: null,
     image_hash: imageHash,
     model: "yolov8n-stock-v1",
     model_hash: modelHash,
@@ -224,7 +261,6 @@ async function seedWarehouse(demo: DemoWarehouse, supplierId: string) {
   });
   if (attErr) throw attErr;
 
-  // Declared warehouse stock matches category SKUs (integer totals).
   await supabase
     .from("warehouse_stock")
     .delete()
@@ -243,31 +279,38 @@ async function seedWarehouse(demo: DemoWarehouse, supplierId: string) {
   }
 
   console.log(
-    `  ${demo.name.padEnd(22)} ${String(demo.items.length).padStart(2)} SKUs · ${demo.categories.join(", ")}`,
+    `  ${demo.name.padEnd(22)} ${creds.kind.padEnd(10)} ${creds.host.padEnd(22)} verified · ${demo.items.length} SKUs`,
   );
 }
 
 async function main() {
-  console.log("Seeding Chair / Monitor / Table demo stock…\n");
+  console.log(
+    "Seeding demo stock — half Hikvision / half fake-cam · all Verified…\n",
+  );
 
-  // Ensure canonical categories exist (idempotent with migration 0007).
   await supabase.from("categories").delete().neq("name", "");
   await supabase
     .from("categories")
     .insert([{ name: "Chair" }, { name: "Monitor" }, { name: "Table" }]);
 
+  let idx = 0;
   for (const demo of DEMO_WAREHOUSES) {
     const supplierId = await findUserIdByEmail(demo.supplierEmail);
     if (!supplierId) {
       console.warn(`skip ${demo.name}: no user ${demo.supplierEmail}`);
       continue;
     }
-    await seedWarehouse(demo, supplierId);
+    await seedWarehouse(demo, supplierId, idx);
+    idx += 1;
   }
 
+  const hik = Math.ceil(idx / 2);
+  const fake = Math.floor(idx / 2);
   console.log(
-    `\nDone. ${DEMO_WAREHOUSES.length} warehouses · Chair/Monitor/Table only`,
+    `\nDone. ${idx} warehouses · ${hik} Hikvision · ${fake} fake-cam · all is_fake=false / enrolled`,
   );
+  console.log("Login: demo.supplier1@example.com / ShelfSignDemo1!");
+  console.log("Fake stream: ensure fake-cam is running on :8788");
 }
 
 main().catch((err) => {

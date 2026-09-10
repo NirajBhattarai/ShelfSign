@@ -113,9 +113,10 @@ async function main() {
     host: REAL_HOST,
     username: REAL_USER,
     password: REAL_PASS,
-    enrollment_status: "pending",
-    cmos_account: null,
+    enrollment_status: "enrolled",
+    cmos_account: `0x${"real".padEnd(40, "0")}`,
     is_fake: false,
+    fraud_detected_at: null,
   });
   if (realCamErr) throw realCamErr;
 
@@ -126,9 +127,10 @@ async function main() {
     host: FAKE_HOST,
     username: FAKE_USER,
     password: FAKE_PASS,
-    enrollment_status: "pending",
-    cmos_account: null,
+    enrollment_status: "enrolled",
+    cmos_account: `0x${"fake".padEnd(40, "0")}`,
     is_fake: false,
+    fraud_detected_at: null,
   });
   if (fakeCamErr) throw fakeCamErr;
 

@@ -9,6 +9,7 @@ dist/
 .env
 .env.local
 cre/.env
+creds.txt
 
 # CRE workflow deps
 cre/**/node_modules/

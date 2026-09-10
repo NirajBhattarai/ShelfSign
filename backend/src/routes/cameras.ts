@@ -10,9 +10,13 @@ import {
 } from "../services/settings.js";
 import {
   attestErrorPayload,
+  clearStaleAttestLocks,
   runFullAttestation,
 } from "../services/attestCamera.js";
-import { requireX402Payment } from "../services/x402.js";
+import {
+  buildPaymentRequirements,
+  requireX402Payment,
+} from "../services/x402.js";
 
 export const cameraRouter = Router();
 
@@ -291,6 +295,9 @@ cameraRouter.get("/", async (req: AuthedRequest, res) => {
     return;
   }
 
+  // Refresh / remount must not keep showing abandoned "Attest in progress".
+  await clearStaleAttestLocks(req.user!.id);
+
   const { data, error } = await supabase
     .from("cameras")
     .select(
@@ -310,13 +317,53 @@ interface AttestBody {
   nonce?: string;
 }
 
+const ATTEST_PAYMENT_DESCRIPTION =
+  "ShelfSign live camera attestation (CMOS + nonce + YOLO → HCS)";
+
+/** x402 challenge only — CMOS/YOLO attest must not run until pay is confirmed. */
+cameraRouter.get("/:id/attest/challenge", async (req: AuthedRequest, res) => {
+  if (req.user!.role !== "supplier") {
+    res.status(403).json({ error: "supplier_only" });
+    return;
+  }
+
+  const { data: camera } = await supabase
+    .from("cameras")
+    .select("id")
+    .eq("id", req.params.id)
+    .eq("supplier_id", req.user!.id)
+    .maybeSingle();
+
+  if (!camera) {
+    res.status(404).json({ error: "camera_not_found" });
+    return;
+  }
+
+  try {
+    const resource = `/cameras/${camera.id}/attest`;
+    const requirements = await buildPaymentRequirements(
+      resource,
+      ATTEST_PAYMENT_DESCRIPTION,
+    );
+    res.json({
+      x402Version: 2,
+      accepts: [requirements],
+      resource,
+    });
+  } catch (err) {
+    res.status(503).json({
+      error: "x402_not_configured",
+      detail: err instanceof Error ? err.message : "unknown",
+    });
+  }
+});
+
 // SiliconWitness challenge-response → YOLO → verified attestation.
 // Requires settled x402 payment (no free attest).
 cameraRouter.post(
   "/:id/attest",
   requireX402Payment({
-    description:
-      "ShelfSign live camera attestation (CMOS + nonce + YOLO → HCS)",
+    description: ATTEST_PAYMENT_DESCRIPTION,
     resourcePath: (req) => `/cameras/${req.params.id}/attest`,
   }),
   async (req: AuthedRequest, res) => {

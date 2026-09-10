@@ -192,9 +192,11 @@ export default function WarehouseDetailClient() {
       await apiPost<Camera>(`/cameras/${cam.id}/restake`);
       await refetchCameras();
       showToast("Escrow restaked — fraud flag cleared.", "success");
-    } catch {
+    } catch (err) {
       showToast(
-        "Restake failed — check backend escrow config and try again.",
+        err instanceof Error
+          ? err.message
+          : "Restake failed — check backend escrow config and try again.",
         "error",
       );
     } finally {
@@ -356,8 +358,8 @@ export default function WarehouseDetailClient() {
         {warehouseCameras.map((cam) => {
           const attestBusy = Boolean(
             cam.attest_locked_at &&
-            Date.now() - new Date(cam.attest_locked_at).getTime() <
-              3 * 60 * 1000,
+              Date.now() - new Date(cam.attest_locked_at).getTime() <
+                3 * 60 * 1000,
           );
           return (
             <div key={cam.id} className="ledger-row">

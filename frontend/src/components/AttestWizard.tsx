@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { apiPost, apiPostPaid, type X402Challenge } from "@/lib/api";
+import { useRef, useState } from "react";
+import { apiGet, apiPost, apiPostPaid, type X402Challenge } from "@/lib/api";
 import { Overlay } from "@/components/ui";
 import { PayUnlockDialog } from "@/components/PayUnlockDialog";
 import { useHederaWallet } from "@/lib/HederaWalletContext";
@@ -49,7 +49,12 @@ interface AttestResult {
 }
 
 type Phase =
-  "idle" | "challenging" | "paying" | "attesting" | "done" | "failed";
+  | "idle"
+  | "challenging"
+  | "paying"
+  | "attesting"
+  | "done"
+  | "failed";
 
 const PHASE_COPY: Record<"challenging" | "paying" | "attesting", string> = {
   challenging: "Generating a fresh attestable nonce…",
@@ -69,6 +74,7 @@ export function AttestWizard({
   const { getClientSigner } = useHederaWallet();
   const [phase, setPhase] = useState<Phase>("idle");
   const [nonce, setNonce] = useState<string | null>(null);
+  const nonceRef = useRef<string | null>(null);
   const [expiresInMs, setExpiresInMs] = useState<number | null>(null);
   const [result, setResult] = useState<AttestResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -88,6 +94,12 @@ export function AttestWizard({
     result?.steps.detection?.totalUnits ??
     items.reduce((n, i) => n + i.count, 0);
 
+  function rememberNonce(value: string, ttlMs: number) {
+    nonceRef.current = value;
+    setNonce(value);
+    setExpiresInMs(ttlMs);
+  }
+
   async function generateNonce() {
     setError(null);
     setResult(null);
@@ -96,8 +108,7 @@ export function AttestWizard({
       const challenge = await apiPost<{ nonce: string; expiresInMs: number }>(
         "/nonce/challenge",
       );
-      setNonce(challenge.nonce);
-      setExpiresInMs(challenge.expiresInMs);
+      rememberNonce(challenge.nonce, challenge.expiresInMs);
       setPhase("idle");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't issue a nonce.");
@@ -107,44 +118,34 @@ export function AttestWizard({
 
   async function startPayAndAttest() {
     setError(null);
+    setResult(null);
     setPhase("paying");
     try {
-      let activeNonce = nonce;
-      if (!activeNonce) {
-        const challenge = await apiPost<{ nonce: string; expiresInMs: number }>(
+      if (!nonceRef.current) {
+        const issued = await apiPost<{ nonce: string; expiresInMs: number }>(
           "/nonce/challenge",
         );
-        activeNonce = challenge.nonce;
-        setNonce(challenge.nonce);
-        setExpiresInMs(challenge.expiresInMs);
+        rememberNonce(issued.nonce, issued.expiresInMs);
       }
 
-      await apiPostPaid<AttestResult>(
-        `/cameras/${camera.id}/attest`,
-        { nonce: activeNonce },
-        {
-          onChallenge: async (challenge) => {
-            setPayChallenge(challenge);
-            setPayOpen(true);
-            return false;
-          },
-        },
+      // Payment challenge only — never POST /attest until the user confirms
+      // pay. Page refresh must not re-run CMOS/YOLO.
+      const challenge = await apiGet<X402Challenge>(
+        `/cameras/${camera.id}/attest/challenge`,
       );
+      setPayChallenge(challenge);
+      setPayOpen(true);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Attestation failed.";
-      if (msg !== "Payment cancelled") {
-        setError(msg);
-        setPhase("failed");
-      }
-      // "Payment cancelled" means onChallenge returned false and payOpen is
-      // now true — keep phase as "paying" so the wizard shows the progress
-      // text while the PayUnlockDialog is open. Phase resets to "idle" only
-      // when the user explicitly cancels via PayUnlockDialog.onCancel.
+      const msg =
+        err instanceof Error ? err.message : "Couldn't start payment.";
+      setError(msg);
+      setPhase("failed");
     }
   }
 
   async function confirmPayAttest() {
-    if (!payChallenge || !nonce) return;
+    const activeNonce = nonceRef.current;
+    if (!payChallenge || !activeNonce) return;
     setPaying(true);
     setError(null);
     setPhase("attesting");
@@ -158,7 +159,7 @@ export function AttestWizard({
       );
       const attested = await apiPostPaid<AttestResult>(
         `/cameras/${camera.id}/attest`,
-        { nonce },
+        { nonce: activeNonce },
         { paymentSignature: signed.paymentHeader },
       );
       setResult(attested);

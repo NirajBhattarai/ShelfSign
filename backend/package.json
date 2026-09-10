@@ -11,8 +11,10 @@
     "test:watch": "vitest",
     "seed:demo": "tsx scripts/seed-demo-accounts.ts",
     "seed:demo-stock": "tsx scripts/seed-demo-stock.ts",
+    "seed:two-warehouses": "tsx scripts/seed-two-warehouses.ts",
     "seed:camera-settings": "tsx scripts/seed-camera-settings.ts",
     "setup:hedera": "tsx scripts/setup-hedera-onchain.ts",
+    "setup:escrow": "tsx scripts/setup-escrow.ts",
     "setup:hcs": "tsx scripts/wait-faucet-and-setup-hcs.ts",
     "test:onchain": "vitest run src/services/onchain.integration.test.ts"
   },

@@ -22,7 +22,7 @@ export interface CameraForAttest {
 }
 
 /** Stale lock older than this is treated as abandoned (crash / tab close). */
-const ATTEST_LOCK_TTL_MS = 3 * 60 * 1000;
+export const ATTEST_LOCK_TTL_MS = 3 * 60 * 1000;
 
 async function acquireAttestLock(
   cameraId: string,
@@ -74,6 +74,20 @@ async function releaseAttestLock(cameraId: string): Promise<void> {
     .from("cameras")
     .update({ attest_locked_at: null, attest_locked_by: null })
     .eq("id", cameraId);
+}
+
+/** Drop abandoned locks so a page refresh doesn't show "Attest in progress". */
+export async function clearStaleAttestLocks(
+  supplierId?: string,
+): Promise<void> {
+  const staleBefore = new Date(Date.now() - ATTEST_LOCK_TTL_MS).toISOString();
+  let q = supabase
+    .from("cameras")
+    .update({ attest_locked_at: null, attest_locked_by: null })
+    .not("attest_locked_at", "is", null)
+    .lt("attest_locked_at", staleBefore);
+  if (supplierId) q = q.eq("supplier_id", supplierId);
+  await q;
 }
 
 export interface FullAttestResult {
