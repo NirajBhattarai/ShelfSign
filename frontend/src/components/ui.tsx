@@ -68,6 +68,11 @@ const STATUS_META: Record<string, { label: string; fg: string; bg: string }> = {
     fg: "var(--verified)",
     bg: "var(--verified-bg)",
   },
+  failed: {
+    label: "Unverified",
+    fg: "var(--failed)",
+    bg: "var(--failed-bg)",
+  },
 };
 
 export function Badge({ status }: { status: string }) {
@@ -181,13 +186,19 @@ export function Overlay({
   onClose,
   children,
   wide,
+  elevated,
 }: {
   onClose: () => void;
   children: ReactNode;
   wide?: boolean;
+  /** Stack above another open overlay (e.g. pay dialog over attest wizard). */
+  elevated?: boolean;
 }) {
   return (
-    <div className="overlay" onClick={onClose}>
+    <div
+      className={`overlay${elevated ? " overlay-elevated" : ""}`}
+      onClick={onClose}
+    >
       <div
         className={`overlay-body${wide ? " overlay-body-wide" : ""}`}
         onClick={(e) => e.stopPropagation()}

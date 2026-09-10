@@ -265,15 +265,22 @@ export function requireX402Payment(opts: {
         return;
       }
 
-      const hcs = await publishPaymentReceiptToHcs({
-        resource,
-        amount: requirements.amount,
-        asset: requirements.asset,
-        network: requirements.network,
-        payer: settlement.payer,
-        payTo: requirements.payTo,
-        settlementTx: settlement.transaction,
-      });
+      let hcs:
+        Awaited<ReturnType<typeof publishPaymentReceiptToHcs>> | undefined;
+      try {
+        hcs = await publishPaymentReceiptToHcs({
+          resource,
+          amount: requirements.amount,
+          asset: requirements.asset,
+          network: requirements.network,
+          payer: settlement.payer,
+          payTo: requirements.payTo,
+          settlementTx: settlement.transaction,
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn("x402 payment HCS receipt skipped:", msg);
+      }
 
       req.x402 = { requirements, settlement, hcs };
       next();

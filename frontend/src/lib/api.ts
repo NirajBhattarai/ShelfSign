@@ -108,6 +108,34 @@ export async function apiGetPaid<T>(
   return paid.json() as Promise<T>;
 }
 
+export class ApiError extends Error {
+  status: number;
+  reasons: string[];
+  isFake?: boolean;
+  detail: unknown;
+
+  constructor(opts: {
+    message: string;
+    status: number;
+    reasons?: string[];
+    isFake?: boolean;
+    detail?: unknown;
+  }) {
+    super(opts.message);
+    this.name = "ApiError";
+    this.status = opts.status;
+    this.reasons = opts.reasons ?? [];
+    this.isFake = opts.isFake;
+    this.detail = opts.detail;
+  }
+}
+
+export function fraudReasonsFrom(err: unknown): string[] {
+  if (err instanceof ApiError && err.reasons.length) return err.reasons;
+  const msg = err instanceof Error ? err.message : "";
+  return ["cmos_mismatch", "signature_invalid"].filter((r) => msg.includes(r));
+}
+
 export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
     method: "POST",
@@ -116,16 +144,126 @@ export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
   });
   if (!res.ok) {
     const detail = await res.json().catch(() => null);
-    const reason =
-      detail?.detail ||
-      detail?.reasons?.join?.(", ") ||
+    const reasons: string[] = Array.isArray(detail?.reasons)
+      ? detail.reasons.map(String)
+      : [];
+    const message =
+      (typeof detail?.detail === "string" && detail.detail) ||
+      (reasons.length ? reasons.join(", ") : null) ||
       detail?.error ||
       `POST ${path} failed: ${res.status}`;
-    throw new Error(
-      typeof reason === "string" ? reason : JSON.stringify(reason),
-    );
+    throw new ApiError({
+      message: typeof message === "string" ? message : JSON.stringify(message),
+      status: res.status,
+      reasons,
+      isFake: Boolean(detail?.isFake ?? detail?.steps?.fraudFlagged),
+      detail,
+    });
   }
   return res.json() as Promise<T>;
+}
+
+/**
+ * Paid x402 POST — on 402, optionally prompts via onChallenge, signs, retries
+ * with PAYMENT-SIGNATURE. Pass paymentSignature to skip the unpaid probe.
+ */
+export async function apiPostPaid<T>(
+  path: string,
+  body?: unknown,
+  opts?: {
+    paymentSignature?: string;
+    getSigner?: () => Promise<ClientHederaSigner>;
+    onChallenge?: (challenge: X402Challenge) => boolean | Promise<boolean>;
+  },
+): Promise<T> {
+  const headers = {
+    "Content-Type": "application/json",
+    ...(await authHeaders()),
+  };
+  const payload = body === undefined ? undefined : JSON.stringify(body);
+
+  if (opts?.paymentSignature) {
+    const paid = await fetch(`${API_URL}${path}`, {
+      method: "POST",
+      headers: {
+        ...headers,
+        "PAYMENT-SIGNATURE": opts.paymentSignature,
+      },
+      body: payload,
+    });
+    if (!paid.ok) {
+      const detail = await paid.json().catch(() => null);
+      const reasons: string[] = Array.isArray(detail?.reasons)
+        ? detail.reasons.map(String)
+        : [];
+      throw new ApiError({
+        message:
+          (typeof detail?.detail === "string" && detail.detail) ||
+          detail?.error ||
+          `Paid POST ${path} failed: ${paid.status}`,
+        status: paid.status,
+        reasons,
+        isFake: Boolean(detail?.isFake ?? detail?.steps?.fraudFlagged),
+        detail,
+      });
+    }
+    return paid.json() as Promise<T>;
+  }
+
+  const first = await fetch(`${API_URL}${path}`, {
+    method: "POST",
+    headers,
+    body: payload,
+  });
+
+  if (first.status !== 402) {
+    if (!first.ok) {
+      const detail = await first.json().catch(() => null);
+      const reasons: string[] = Array.isArray(detail?.reasons)
+        ? detail.reasons.map(String)
+        : [];
+      throw new ApiError({
+        message:
+          (typeof detail?.detail === "string" && detail.detail) ||
+          detail?.error ||
+          `POST ${path} failed: ${first.status}`,
+        status: first.status,
+        reasons,
+        isFake: Boolean(detail?.isFake ?? detail?.steps?.fraudFlagged),
+        detail,
+      });
+    }
+    return first.json() as Promise<T>;
+  }
+
+  const challenge = (await first.json()) as X402Challenge;
+  if (opts?.onChallenge) {
+    const ok = await opts.onChallenge(challenge);
+    if (!ok) throw new Error("Payment cancelled");
+  }
+
+  const requirements = challenge.accepts?.[0];
+  if (!requirements) {
+    throw new Error(
+      challenge.error ?? "Payment required (x402) but no accepts[] in 402.",
+    );
+  }
+
+  const { signExactPaymentHeader, signExactPaymentHeaderWithSigner } =
+    await import("./x402Client");
+  let signature: string;
+  if (opts?.getSigner) {
+    const signer = await opts.getSigner();
+    const signed = await signExactPaymentHeaderWithSigner(requirements, signer);
+    signature = signed.paymentHeader;
+  } else {
+    const signed = await signExactPaymentHeader(requirements);
+    signature = signed.paymentHeader;
+  }
+
+  return apiPostPaid<T>(path, body, {
+    paymentSignature: signature,
+  });
 }
 
 export async function apiPut<T>(path: string, body: unknown): Promise<T> {

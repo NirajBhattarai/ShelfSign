@@ -17,9 +17,7 @@ enrolled camera in this system without an active HBAR lock behind it.
 1. **Lock** — camera enrolls → `lockCameraEscrow()` moves `ESCROW_AMOUNT_HBAR`
    (default 10 ℏ) from the funder into the vault. `escrow_status = 'locked'`.
    If this fails, enrollment fails with it — never optional.
-2. **Slash** — a Chainlink CRE fraud review returns `SLASH` for one of the
-   camera's attestations (`POST /cre/internal/verdicts` or
-   `/cre/reviews/:id/run-local`) → `slashCameraForFraud()` transfers the
+2. **Slash** — fraud is confirmed → `slashCameraForFraud()` transfers the
    locked bond out of the vault to the platform operator account, flags
    `cameras.is_fake = true`, and sets `escrow_status = 'forfeited'`. The
    supplier does not get this back.
@@ -32,7 +30,7 @@ enrolled camera in this system without an active HBAR lock behind it.
 
 The prior slash is preserved for audit in `escrow_forfeited_at` /
 `escrow_slash_tx_id` / `escrow_slash_hashscan_url` — restaking updates the
-*active* lock fields (`escrow_tx_id`, `escrow_amount`, …) but does not erase
+_active_ lock fields (`escrow_tx_id`, `escrow_amount`, …) but does not erase
 the slash history.
 
 ## Why an account vault (not Solidity)?
@@ -69,7 +67,7 @@ Restake after a slash (`POST /cameras/:id/restake`) runs the same
 
 ## Slash path
 
-CRE verdict `SLASH` → `slashCameraForFraud(cameraId)`:
+Fraud confirmed → `slashCameraForFraud(cameraId)`:
 
 1. Transfer the camera's locked `escrow_amount` from vault → operator account
 2. `cameras.escrow_status = 'forfeited'`, `is_fake = true`, `fraud_detected_at` set

@@ -1,8 +1,0 @@
-{
-  "schedule": "0 */5 * * * *",
-  "pendingRiskUrl": "https://YOUR_PUBLIC_API/cre/internal/pending-risk",
-  "verdictUrl": "https://YOUR_PUBLIC_API/cre/internal/verdicts",
-  "secretId": "API_TOKEN",
-  "slashThreshold": 700,
-  "holdThreshold": 350
-}

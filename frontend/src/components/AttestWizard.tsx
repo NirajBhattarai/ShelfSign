@@ -49,12 +49,7 @@ interface AttestResult {
 }
 
 type Phase =
-  | "idle"
-  | "challenging"
-  | "paying"
-  | "attesting"
-  | "done"
-  | "failed";
+  "idle" | "challenging" | "paying" | "attesting" | "done" | "failed";
 
 const PHASE_COPY: Record<"challenging" | "paying" | "attesting", string> = {
   challenging: "Generating a fresh attestable nonce…",
@@ -140,9 +135,11 @@ export function AttestWizard({
       if (msg !== "Payment cancelled") {
         setError(msg);
         setPhase("failed");
-      } else {
-        setPhase("idle");
       }
+      // "Payment cancelled" means onChallenge returned false and payOpen is
+      // now true — keep phase as "paying" so the wizard shows the progress
+      // text while the PayUnlockDialog is open. Phase resets to "idle" only
+      // when the user explicitly cancels via PayUnlockDialog.onCancel.
     }
   }
 
@@ -199,10 +196,8 @@ export function AttestWizard({
             className="field-error"
             style={{ marginTop: 0, marginBottom: 16 }}
           >
-            This camera is flagged unverified (synthetic stub or failed silicon
-            check). Attest must hit a real sensor at the host above — Edit IP /
-            login if this still points at Fake Cam (
-            <span className="mono">127.0.0.1:8788</span>).
+            Last live attest failed authenticity (Unverified). Edit IP does not
+            change that flag — attest successfully to clear it.
           </div>
         ) : null}
 

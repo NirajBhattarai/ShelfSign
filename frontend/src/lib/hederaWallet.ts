@@ -29,7 +29,7 @@ export function walletConnectConfigured(): boolean {
 export function demoPayerAvailable(): boolean {
   return Boolean(
     process.env.NEXT_PUBLIC_HEDERA_PAYER_ID?.trim() &&
-      process.env.NEXT_PUBLIC_HEDERA_PAYER_KEY?.trim(),
+    process.env.NEXT_PUBLIC_HEDERA_PAYER_KEY?.trim(),
   );
 }
 

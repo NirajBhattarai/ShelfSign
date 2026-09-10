@@ -8,10 +8,10 @@ const DEFAULT_BUYER_STOCK_COPY = {
   liveConnecting: "Connecting to live camera…",
   liveFallback: "Live feed unavailable — warehouse photo",
   overlayTitle: "Warehouse attestation",
-  countLiveLabel: "Attest live frame",
-  countLiveBusy: "Running full attestation (OSD + PUF + YOLO)…",
+  countLiveLabel: "Pay & attest warehouse",
+  countLiveBusy: "Paying & attesting…",
   countLiveHint:
-    "Runs a full SiliconWitness attestation: OSD nonce, PUF identity, then YOLO count on that frame.",
+    "Pay with x402 to re-run live CMOS + nonce proof. Fake/stub cameras are flagged Unverified in the database.",
 };
 
 export type SystemSettingKey =

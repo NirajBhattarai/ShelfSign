@@ -81,10 +81,6 @@ export function ViewAttestationModal({
   onPayRefresh,
   onClose,
   onPlaceOrder,
-  creVerdict = null,
-  creBusy = false,
-  creError = null,
-  onCreReview,
 }: {
   title: string;
   subtitle: string;
@@ -105,16 +101,6 @@ export function ViewAttestationModal({
   onPayRefresh: () => void;
   onClose: () => void;
   onPlaceOrder: () => void;
-  /** Optional Chainlink CRE confidential review */
-  creVerdict?: {
-    verdict: string;
-    score: number;
-    reason_hash: string;
-    source: string;
-  } | null;
-  creBusy?: boolean;
-  creError?: string | null;
-  onCreReview?: () => void;
 }) {
   const [fullReport, setFullReport] = useState(false);
   const verified = !showFakeFlag;
@@ -223,20 +209,6 @@ export function ViewAttestationModal({
           >
             {counting ? countLiveBusy : countLiveLabel}
           </button>
-          {attestation.id && onCreReview && (
-            <button
-              type="button"
-              className="btn btn-ghost"
-              onClick={onCreReview}
-              disabled={counting || creBusy}
-            >
-              {creBusy
-                ? "CRE review…"
-                : creVerdict
-                  ? `CRE: ${creVerdict.verdict}`
-                  : "Confidential CRE review"}
-            </button>
-          )}
           <button
             type="button"
             className="btn btn-ghost"
@@ -247,19 +219,6 @@ export function ViewAttestationModal({
           </button>
         </div>
         <p className="row-sub attest-modal-hint">{countLiveHint}</p>
-        {creVerdict && (
-          <p className="row-sub">
-            Chainlink CRE verdict{" "}
-            <span className="mono">{creVerdict.verdict}</span>
-            {" · "}score {creVerdict.score}
-            {" · "}
-            <span className="mono">{creVerdict.reason_hash}</span>
-            {" · "}
-            {creVerdict.source}
-          </p>
-        )}
-        {creError && <div className="field-error">{creError}</div>}
-
         {fullReport && (
           <div className="attest-full-report">
             {liveCount && (

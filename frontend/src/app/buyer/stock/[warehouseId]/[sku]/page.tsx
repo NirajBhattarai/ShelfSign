@@ -2,7 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { apiGet, apiGetPaid, apiPost, type X402Challenge } from "@/lib/api";
+import {
+  apiGet,
+  apiGetPaid,
+  apiPostPaid,
+  ApiError,
+  type X402Challenge,
+} from "@/lib/api";
 import { signExactPaymentHeaderWithSigner } from "@/lib/x402Client";
 import { useHederaWallet } from "@/lib/HederaWalletContext";
 import { PayUnlockDialog } from "@/components/PayUnlockDialog";
@@ -36,6 +42,7 @@ interface LiveCountResult {
   cmosScore?: number;
   attestationId?: string | null;
   fullAttestation?: boolean;
+  isFake?: boolean;
   steps?: {
     challenge?: {
       match?: boolean;
@@ -57,7 +64,14 @@ interface StockDetailResponse {
     items: StockRow["item"][];
     cmos_score?: number | null;
     detection_count?: number | null;
+    is_fake?: boolean;
   };
+  camera?: {
+    id: string;
+    label: string | null;
+    isFake: boolean;
+    fraudDetectedAt?: string | null;
+  } | null;
   liveStreamUrl: string | null;
   totalUnits?: number;
   detectedTotal?: number;
@@ -112,6 +126,13 @@ export default function StockDetailPage() {
     item: { sku: string; count: number; detectedCount?: number };
   } | null>(null);
   const [payError, setPayError] = useState<string | null>(null);
+  // Separate pay state for the count-live flow so it doesn't tangle with the
+  // stock-unlock flow (which uses GET /stock/.../challenge).
+  const [countPayOpen, setCountPayOpen] = useState(false);
+  const [countPayChallenge, setCountPayChallenge] =
+    useState<X402Challenge | null>(null);
+  const [countPayError, setCountPayError] = useState<string | null>(null);
+  const [countPaying, setCountPaying] = useState(false);
   const { getClientSigner } = useHederaWallet();
 
   useEffect(() => {
@@ -201,57 +222,142 @@ export default function StockDetailPage() {
     }
   }
 
+  // Shared success path for both the 402-gated and already-paid count-live calls.
+  async function applyLiveCountResult(
+    result: LiveCountResult,
+    snapshot: StockDetailResponse,
+  ) {
+    setLiveCount(result);
+    // Refresh page data so published attestation totals + is_fake update.
+    // If this SKU wasn't in the frame, API still returns count 0 (not 404).
+    try {
+      const refreshed = await apiGet<StockDetailResponse>(
+        `/warehouses/${warehouseId}/stock/${encodeURIComponent(sku)}`,
+      );
+      setDetail(refreshed);
+    } catch {
+      const fromLive = (result.items ?? []).find((i) => i.sku === sku);
+      setDetail({
+        ...snapshot,
+        skuAbsent: !fromLive,
+        item: {
+          ...snapshot.item,
+          confidence: fromLive?.confidence ?? snapshot.item.confidence,
+          detectedCount: fromLive?.count ?? 0,
+        },
+        detectedTotal: result.totalUnits,
+        camera: snapshot.camera
+          ? { ...snapshot.camera, isFake: Boolean(result.isFake) }
+          : snapshot.camera,
+        attestation: {
+          ...snapshot.attestation,
+          id: result.attestationId ?? snapshot.attestation.id,
+          camera_id: result.cameraId,
+          items: result.items ?? [],
+          image_hash: result.imageHash,
+          model: result.model,
+          nonce: result.nonce ?? snapshot.attestation.nonce,
+          captured_at: result.countedAt,
+          cmos_score: result.cmosScore ?? snapshot.attestation.cmos_score,
+          detection_count: result.detectionCount,
+          is_fake: Boolean(result.isFake),
+        },
+      });
+    }
+  }
+
+  async function markCameraFakeFromError(err: unknown) {
+    if (!(err instanceof ApiError) || !err.isFake || !detail) return;
+    setDetail({
+      ...detail,
+      camera: detail.camera
+        ? { ...detail.camera, isFake: true }
+        : detail.camera,
+      attestation: { ...detail.attestation, is_fake: true },
+    });
+    // Re-fetch so catalog-backed fields stay in sync with DB.
+    try {
+      const refreshed = await apiGet<StockDetailResponse>(
+        `/warehouses/${warehouseId}/stock/${encodeURIComponent(sku)}`,
+      );
+      setDetail(refreshed);
+    } catch {
+      /* keep optimistic flag */
+    }
+  }
+
   async function countLiveFrame() {
     if (!detail) return;
     setCounting(true);
     setCountError(null);
+    setCountPayError(null);
+    const snapshot = detail; // capture before any async state change
     try {
-      const result = await apiPost<LiveCountResult>(
+      const result = await apiPostPaid<LiveCountResult>(
         `/warehouses/${warehouseId}/count-live`,
+        { cameraId: snapshot.attestation.camera_id ?? undefined },
         {
-          cameraId: detail.attestation.camera_id ?? undefined,
+          onChallenge: async (challenge) => {
+            // Signal caller to open dialog; caller will sign and retry.
+            setCountPayChallenge(challenge);
+            setCountPayOpen(true);
+            return false;
+          },
         },
       );
-      setLiveCount(result);
-      // Refresh page data so published attestation totals update.
-      // If this SKU wasn't in the frame, API still returns count 0 (not 404).
-      try {
-        const refreshed = await apiGet<StockDetailResponse>(
-          `/warehouses/${warehouseId}/stock/${encodeURIComponent(sku)}`,
-        );
-        setDetail(refreshed);
-      } catch {
-        const fromLive = (result.items ?? []).find((i) => i.sku === sku);
-        setDetail({
-          ...detail,
-          skuAbsent: !fromLive,
-          item: {
-            ...detail.item,
-            confidence: fromLive?.confidence ?? detail.item.confidence,
-            detectedCount: fromLive?.count ?? 0,
-          },
-          detectedTotal: result.totalUnits,
-          attestation: {
-            ...detail.attestation,
-            id: result.attestationId ?? detail.attestation.id,
-            camera_id: result.cameraId,
-            items: result.items ?? [],
-            image_hash: result.imageHash,
-            model: result.model,
-            nonce: result.nonce ?? detail.attestation.nonce,
-            captured_at: result.countedAt,
-            cmos_score: result.cmosScore ?? detail.attestation.cmos_score,
-            detection_count: result.detectionCount,
-          },
-        });
-      }
+      await applyLiveCountResult(result, snapshot);
     } catch (err) {
-      setLiveCount(null);
-      setCountError(
-        err instanceof Error ? err.message : "Live attestation failed.",
-      );
+      const msg =
+        err instanceof Error ? err.message : "Live attestation failed.";
+      // "Payment cancelled" is thrown when onChallenge returns false — the
+      // dialog is now open, so don't surface it as an error.
+      if (msg !== "Payment cancelled") {
+        setLiveCount(null);
+        setCountError(msg);
+        await markCameraFakeFromError(err);
+      }
     } finally {
       setCounting(false);
+    }
+  }
+
+  async function confirmCountLivePay() {
+    if (!countPayChallenge || !detail) return;
+    setCountPaying(true);
+    setCountPayError(null);
+    const snapshot = detail;
+    try {
+      const requirements = countPayChallenge.accepts?.[0];
+      if (!requirements) {
+        throw new Error("Challenge missing payment requirements.");
+      }
+      if (!requirements.extra?.feePayer) {
+        throw new Error(
+          "Facilitator feePayer missing — check X402_FACILITATOR_URL / network.",
+        );
+      }
+      const signer = await getClientSigner();
+      const signed = await signExactPaymentHeaderWithSigner(
+        requirements,
+        signer,
+      );
+      const result = await apiPostPaid<LiveCountResult>(
+        `/warehouses/${warehouseId}/count-live`,
+        { cameraId: snapshot.attestation.camera_id ?? undefined },
+        { paymentSignature: signed.paymentHeader },
+      );
+      setCountPayOpen(false);
+      setCountPayChallenge(null);
+      await applyLiveCountResult(result, snapshot);
+    } catch (err) {
+      const msg =
+        err instanceof Error ? err.message : "Live attestation failed.";
+      if (msg !== "Payment cancelled") {
+        setCountPayError(msg);
+        await markCameraFakeFromError(err);
+      }
+    } finally {
+      setCountPaying(false);
     }
   }
 
@@ -308,6 +414,9 @@ export default function StockDetailPage() {
 
   const { warehouse, attestation, item, copy, trustChecks, liveStreamUrl } =
     detail;
+  const cameraUnverified = Boolean(
+    attestation.is_fake || detail.camera?.isFake,
+  );
   const attestedItems = attestation.items ?? [];
   const attestedTotal =
     detail.totalUnits ??
@@ -370,7 +479,10 @@ export default function StockDetailPage() {
           />
 
           <div className="product-detail-badges">
-            <Badge status="verified" />
+            <Badge status={cameraUnverified ? "failed" : "verified"} />
+            {cameraUnverified ? (
+              <span className="meta-chip">Unverified camera</span>
+            ) : null}
             <span className="meta-chip">
               {item.count > 0 ? "Available" : "Out of stock"}
             </span>
@@ -563,7 +675,21 @@ export default function StockDetailPage() {
       {showAttest && (
         <Overlay onClose={() => setShowAttest(false)} wide>
           <div className="overlay-title">{copy.overlayTitle}</div>
-          <div className="overlay-sub">{copy.overlaySub}</div>
+          <div className="overlay-sub">
+            {copy.overlaySub}
+            {cameraUnverified ? " · Unverified camera" : ""}
+          </div>
+
+          {cameraUnverified ? (
+            <div
+              className="field-error"
+              style={{ marginTop: 0, marginBottom: 16 }}
+            >
+              Live attest failed silicon authenticity — this camera is marked
+              Unverified. Editing IP does not change that; a successful attest
+              clears it.
+            </div>
+          ) : null}
 
           <div className="attest-total-banner">
             <div>
@@ -573,16 +699,16 @@ export default function StockDetailPage() {
             <button
               className="btn btn-primary"
               onClick={countLiveFrame}
-              disabled={counting}
+              disabled={counting || countPaying}
             >
-              {counting
-                ? (copy.countLiveBusy ?? "Counting…")
-                : (copy.countLiveLabel ?? "Refresh camera proof")}
+              {counting || countPaying
+                ? (copy.countLiveBusy ?? "Paying & attesting…")
+                : (copy.countLiveLabel ?? "Pay & attest warehouse")}
             </button>
           </div>
           <p className="row-sub" style={{ marginBottom: 16 }}>
             {copy.countLiveHint ??
-              "Camera proof only — does not change orderable stock."}
+              "Pay with x402 to re-run live CMOS + nonce proof. Fake cameras are flagged Unverified."}
           </p>
 
           {countError && <div className="field-error">{countError}</div>}
@@ -818,6 +944,30 @@ export default function StockDetailPage() {
             setPayOpen(false);
             setPayChallenge(null);
             setPayError(null);
+          }}
+        />
+      )}
+
+      {countPayOpen && countPayChallenge && detail && (
+        <PayUnlockDialog
+          title="Pay & attest warehouse"
+          subtitle={`${detail.warehouse.profiles?.company_name ?? "Supplier"} · ${detail.warehouse.name} · live warehouse attestation · Hedera x402`}
+          confirmVerb="Pay & attest"
+          sku={sku}
+          warehouseName={
+            detail.warehouse.profiles?.company_name
+              ? `${detail.warehouse.profiles.company_name} · ${detail.warehouse.name}`
+              : detail.warehouse.name
+          }
+          challenge={countPayChallenge}
+          busy={countPaying}
+          error={countPayError}
+          onConfirm={confirmCountLivePay}
+          onCancel={() => {
+            if (countPaying) return;
+            setCountPayOpen(false);
+            setCountPayChallenge(null);
+            setCountPayError(null);
           }}
         />
       )}

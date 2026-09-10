@@ -174,7 +174,7 @@ export default function WarehouseDetailClient() {
       await refetchCameras();
       closeEditCamera();
       showToast(
-        "Camera updated — host saved. Attest against this device to enroll; Fake Cam stubs stay unverified.",
+        "Camera host updated. Verified/unverified status is unchanged.",
         "success",
       );
     } catch (err) {
@@ -356,8 +356,8 @@ export default function WarehouseDetailClient() {
         {warehouseCameras.map((cam) => {
           const attestBusy = Boolean(
             cam.attest_locked_at &&
-              Date.now() - new Date(cam.attest_locked_at).getTime() <
-                3 * 60 * 1000,
+            Date.now() - new Date(cam.attest_locked_at).getTime() <
+              3 * 60 * 1000,
           );
           return (
             <div key={cam.id} className="ledger-row">
@@ -404,10 +404,8 @@ export default function WarehouseDetailClient() {
                     {cam.fraud_detected_at
                       ? ` · ${new Date(cam.fraud_detected_at).toLocaleString()}`
                       : ""}
-                    . Buyers will see a trust warning for this warehouse. If the
-                    wrong device is registered, use "Edit IP / login" to point
-                    this camera at the right one, then restake and re-attest to
-                    clear the flag.
+                    . Buyers see Unverified after a failed live attest. Edit IP
+                    does not change this flag — a successful attest clears it.
                   </div>
                 ) : null}
                 {cam.escrow_status === "locked" && (
@@ -739,9 +737,8 @@ export default function WarehouseDetailClient() {
         <Overlay onClose={closeEditCamera}>
           <div className="overlay-title">Edit {editingCamera.label}</div>
           <div className="overlay-sub">
-            Point this camera at a different device, or fix wrong credentials.
-            Saving clears its PUF enrollment — attest again to re-enroll against
-            the new device, and restake if its bond was slashed.
+            Change host / login. Saving clears PUF enrollment only —
+            verified/unverified status is left as-is until the next attest.
           </div>
 
           <div className="field">

@@ -8,6 +8,7 @@ model: sonnet
 You work exclusively in `vision-service/` (Python, FastAPI).
 
 Project context: this service has two distinct jobs that must not be conflated:
+
 1. **CMOS/PRNU fingerprinting** (`src/cmos/`, `src/api/cmos.py`) — the hardware
    trust root. Enrollment extracts a stable sensor-noise residual template from
    calibration frames; matching extracts the same residual from a new frame and
@@ -30,6 +31,7 @@ code comments near the implementation, since this is the piece most likely
 to be scrutinized.
 
 Conventions:
+
 - Type-hint everything; this is inference/security-adjacent code.
 - Keep model loading (YOLO weights, template store) lazy/cached, not per-request.
 - No comments describing what a line does; do explain non-obvious numerical

@@ -1,8 +1,0 @@
-{
-  "schedule": "0 */1 * * * *",
-  "pendingRiskUrl": "http://127.0.0.1:4000/cre/internal/pending-risk",
-  "verdictUrl": "http://127.0.0.1:4000/cre/internal/verdicts",
-  "secretId": "API_TOKEN",
-  "slashThreshold": 700,
-  "holdThreshold": 350
-}

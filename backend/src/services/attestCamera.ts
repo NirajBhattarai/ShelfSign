@@ -356,19 +356,31 @@ async function runFullAttestationLocked(
     let challenged = await postChallenge(enrolledCamera, nonce);
 
     // Same physical sensor (PRNU) but BCH helper can't correct — enrollment
-    // drifted with lighting/IR. Re-enroll once and retry; do not fraud-flag.
-    const stale =
-      !challenged.match &&
-      challenged.prnuMatch !== false &&
-      Boolean(challenged.prnuAvailable) &&
-      /puf_enrollment_stale|PUF key regeneration failed|regenerated_address_mismatch/i.test(
-        challenged.signingError || "",
-      );
+    // drifted with lighting/IR, or enroll/challenge capture conditions
+    // diverged. Re-enroll up to a few times while PRNU still matches; do
+    // not fraud-flag. Softfail stays off for synthetic devices.
+    const maxStaleRefreshes = 3;
+    const refreshAttempts: Array<Record<string, unknown>> = [];
+    for (let refresh = 0; refresh < maxStaleRefreshes; refresh++) {
+      const stale =
+        !challenged.match &&
+        challenged.prnuMatch !== false &&
+        Boolean(challenged.prnuAvailable) &&
+        /puf_enrollment_stale|PUF key regeneration failed|regenerated_address_mismatch/i.test(
+          challenged.signingError || "",
+        );
+      if (!stale) break;
 
-    if (stale) {
+      refreshAttempts.push({
+        attempt: refresh + 1,
+        reason: challenged.signingError,
+        prnuScore: challenged.prnuScore,
+        correctedBitErrors: challenged.correctedBitErrors,
+      });
       steps.enrollmentRefresh = {
         reason: challenged.signingError,
         prnuScore: challenged.prnuScore,
+        attempts: refreshAttempts,
       };
       enrolledCamera = await ensurePufEnrollment(
         enrolledCamera,
@@ -383,6 +395,7 @@ async function runFullAttestationLocked(
         cmosAccount: enrolledCamera.cmos_account,
         ensured: true,
         refreshed: true,
+        refreshCount: refresh + 1,
       };
       // Fresh nonce after re-enroll so OSD + verify stay consistent.
       nonce = issueNonce().nonce;
@@ -423,6 +436,35 @@ async function runFullAttestationLocked(
       detail: err instanceof Error ? err.message : "unreachable",
       steps,
     });
+  }
+
+  // Synthetic / stub cameras must never pass via PUF soft-fail — flag DB
+  // immediately so buyer/supplier UIs flip to Unverified.
+  {
+    const isSynthetic = /synthetic_device|synthetic_replay/i.test(
+      signingError || "",
+    );
+    if (isSynthetic) {
+      await supabase
+        .from("cameras")
+        .update({
+          is_fake: true,
+          fraud_detected_at: new Date().toISOString(),
+        })
+        .eq("id", enrolledCamera.id);
+      throw Object.assign(new Error("verification_failed"), {
+        status: 422,
+        reasons: ["synthetic_device"],
+        isFake: true,
+        steps: {
+          ...steps,
+          cmosScore,
+          prnuScore,
+          fraudFlagged: true,
+          signingError,
+        },
+      });
+    }
   }
 
   let items: unknown[] = [];
@@ -617,16 +659,24 @@ async function runFullAttestationLocked(
       .eq("id", attestation.id);
   } catch (err) {
     const msg = err instanceof Error ? err.message : "hcs_publish_failed";
-    const hint = /HCS not configured|HEDERA_HCS_TOPIC_ID|HEDERA_OPERATOR/i.test(
-      msg,
-    )
-      ? " Run: cd backend && npm run setup:hcs (fund OPERATOR/AGENT at faucet.hedera.com, or set HEDERA_PAT)."
-      : "";
-    throw Object.assign(new Error(msg + hint), {
-      status: 502,
-      detail: "HCS publish failed",
-      steps,
-    });
+    const requireHcs =
+      process.env.HEDERA_REQUIRE_HCS === "1" ||
+      process.env.HEDERA_REQUIRE_HCS === "true";
+    if (requireHcs) {
+      const hint =
+        /HCS not configured|HEDERA_HCS_TOPIC_ID|HEDERA_OPERATOR/i.test(msg)
+          ? " Run: cd backend && npm run setup:hcs (fund OPERATOR/AGENT at portal.hedera.com)."
+          : "";
+      throw Object.assign(new Error(msg + hint), {
+        status: 502,
+        detail: "HCS publish failed",
+        steps,
+      });
+    }
+    // Demo path: settle x402 + CMOS attest even when operator key / topic
+    // are not fully configured yet.
+    console.warn("HCS publish skipped:", msg);
+    hcs = null;
   }
 
   return {

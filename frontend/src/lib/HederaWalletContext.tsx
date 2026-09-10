@@ -209,9 +209,8 @@ export function HederaWalletProvider({ children }: { children: ReactNode }) {
     if (!creds || creds.accountId !== wallet.accountId) {
       throw new Error("Local payer key missing — reconnect the wallet.");
     }
-    const { createClientHederaSigner, PrivateKey } = await import(
-      "@x402/hedera"
-    );
+    const { createClientHederaSigner, PrivateKey } =
+      await import("@x402/hedera");
     const parseKey = (raw: string) =>
       raw.startsWith("0x")
         ? PrivateKey.fromStringECDSA(raw)

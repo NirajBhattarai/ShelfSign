@@ -46,9 +46,9 @@ export function hcsConfigured(): boolean {
   const topic = process.env.HEDERA_HCS_TOPIC_ID?.trim() ?? "";
   return Boolean(
     process.env.HEDERA_OPERATOR_ID?.trim() &&
-      process.env.HEDERA_OPERATOR_KEY?.trim() &&
-      topic &&
-      !topic.includes("mock"),
+    process.env.HEDERA_OPERATOR_KEY?.trim() &&
+    topic &&
+    !topic.includes("mock"),
   );
 }
 
@@ -164,6 +164,23 @@ export async function publishPaymentReceiptToHcs(receipt: {
   return submitMessage({
     type: "shelfsign.x402.payment.v1",
     ...receipt,
+  });
+}
+
+export async function publishCameraEscrowToHcs(event: {
+  action: "lock" | "slash" | "restake";
+  cameraId: string;
+  warehouseId?: string | null;
+  supplierId?: string | null;
+  label?: string | null;
+  escrowAccountId: string;
+  tokenId: string;
+  amount: number;
+  transactionId: string;
+}): Promise<HcsPublishResult> {
+  return submitMessage({
+    type: "shelfsign.camera_escrow.v1",
+    ...event,
   });
 }
 

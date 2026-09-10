@@ -647,6 +647,10 @@ a {
   z-index: 10;
 }
 
+.overlay-elevated {
+  z-index: 20;
+}
+
 .overlay-body {
   background: var(--panel);
   border: 1px solid var(--hairline-strong);

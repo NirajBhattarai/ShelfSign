@@ -11,6 +11,9 @@ import {
 import type { X402Challenge } from "@/lib/api";
 
 export function PayUnlockDialog({
+  title = "Unlock attested stock",
+  subtitle,
+  confirmVerb = "Pay & unlock",
   sku,
   warehouseName,
   challenge,
@@ -19,6 +22,9 @@ export function PayUnlockDialog({
   onConfirm,
   onCancel,
 }: {
+  title?: string;
+  subtitle?: string;
+  confirmVerb?: string;
   sku: string;
   warehouseName: string;
   challenge: X402Challenge;
@@ -31,8 +37,7 @@ export function PayUnlockDialog({
   const [showConnect, setShowConnect] = useState(false);
 
   const requirements = challenge.accepts?.[0] as
-    | PaymentRequirements
-    | undefined;
+    PaymentRequirements | undefined;
   const amount = requirements
     ? formatPaymentAmount(requirements)
     : "x402 price";
@@ -42,10 +47,10 @@ export function PayUnlockDialog({
   }
 
   return (
-    <Overlay onClose={busy ? () => undefined : onCancel} wide>
-      <div className="overlay-title">Unlock attested stock</div>
+    <Overlay onClose={busy ? () => undefined : onCancel} wide elevated>
+      <div className="overlay-title">{title}</div>
       <div className="overlay-sub">
-        {sku} · {warehouseName} · Hedera testnet x402 settle
+        {subtitle ?? `${sku} · ${warehouseName} · Hedera testnet x402 settle`}
       </div>
 
       <div className="order-summary-strip">
@@ -130,7 +135,7 @@ export function PayUnlockDialog({
               ? wallet.mode === "walletconnect"
                 ? "Approve in wallet…"
                 : "Signing & settling…"
-              : `Pay ${amount}`}
+              : `${confirmVerb} · ${amount}`}
           </button>
         )}
       </div>

@@ -733,6 +733,7 @@ warehouseRouter.get("/:id/stock/:sku", async (req: AuthedRequest, res) => {
       cmos_score: matchedAtt?.cmos_score ?? null,
       prnu_score: matchedAtt?.prnu_score ?? null,
       detection_count: matchedAtt?.detection_count ?? null,
+      is_fake: Boolean((camera as { is_fake?: boolean } | undefined)?.is_fake),
     },
     liveStreamUrl,
     camera: camera
@@ -756,10 +757,10 @@ warehouseRouter.get("/:id/stock/:sku", async (req: AuthedRequest, res) => {
       overlaySub: detected
         ? `Camera proof for ${matchedItem.sku} at ${warehouse.name}. Orderable quantity is supplier-declared (${matchedItem.count}); vision detected ${matchedItem.detectedCount} in the latest frame.`
         : `Orderable quantity for ${matchedItem.sku} is supplier-declared (${matchedItem.count}). Latest camera frame did not detect this SKU (vision can miss shadow/background items).`,
-      countLiveLabel: "Pay & refresh proof",
+      countLiveLabel: "Pay & attest warehouse",
       countLiveBusy: "Paying & attesting…",
       countLiveHint:
-        "Pay with x402 to re-run live CMOS + nonce proof. Orderable stock stays supplier-declared.",
+        "Pay with x402 to re-run live CMOS + nonce proof. Fake/stub cameras are flagged Unverified in the database.",
     },
   });
 });
@@ -769,7 +770,7 @@ warehouseRouter.post(
   "/:id/count-live",
   requireX402Payment({
     description:
-      "ShelfSign live camera proof refresh (CMOS + nonce + YOLO → HCS)",
+      "ShelfSign warehouse live attestation (CMOS + nonce + YOLO → HCS)",
     resourcePath: (req) => `/warehouses/${req.params.id}/count-live`,
   }),
   async (req: AuthedRequest, res) => {
@@ -817,6 +818,8 @@ warehouseRouter.post(
       const result = await runFullAttestation(camera, {
         lockedBy: req.user!.id,
       });
+      // Successful attest clears is_fake in runFullAttestation — don't echo
+      // the stale pre-attest camera row.
       res.status(201).json({
         cameraId: result.cameraId,
         cameraLabel: result.cameraLabel,
@@ -835,7 +838,7 @@ warehouseRouter.post(
         attestation: result.attestation,
         steps: result.steps,
         fullAttestation: true,
-        isFake: Boolean(camera.is_fake),
+        isFake: false,
       });
     } catch (err) {
       const { status, body } = attestErrorPayload(err);

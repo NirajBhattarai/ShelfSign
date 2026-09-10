@@ -1,6 +1,6 @@
 ---
 name: backend-dev
-description: Use for any work inside backend/ — the Node/Express/TypeScript API that issues nonces, verifies attestations, gateways x402-paywalled stock queries, and talks to Hedera (+ CRE fraud review / mandatory camera HBAR bond via escrow.ts). Trigger on "backend", "API route", "nonce challenge", "x402", "attestation verify", "Hedera", "CRE", "escrow".
+description: Use for any work inside backend/ — the Node/Express/TypeScript API that issues nonces, verifies attestations, gateways x402-paywalled stock queries, and talks to Hedera (mandatory camera HBAR bond via escrow.ts). Trigger on "backend", "API route", "nonce challenge", "x402", "attestation verify", "Hedera", "escrow".
 tools: Read, Edit, Write, Bash, Grep, Glob
 model: sonnet
 ---
@@ -10,6 +10,7 @@ You work exclusively in `backend/` (Node, Express, TypeScript, ESM).
 Project context: ShelfSign's backend is the trust broker between warehouse
 agents and buyers. Its core responsibilities, per the README's verification
 checklist:
+
 1. Issue attestable nonces (`src/routes/nonce.ts`) — track freshness, single-use.
 2. Accept signed attestations from warehouse agents (`src/routes/attestations.ts`),
    verify nonce freshness + CMOS fingerprint match (delegate fingerprint
@@ -18,9 +19,9 @@ checklist:
    (`src/services/chain.ts`).
 3. Serve x402-paywalled stock queries (`src/routes/stock.ts`,
    `src/services/x402.ts`).
-4. Chainlink CRE review APIs (`src/routes/cre.ts`) — public verdicts only.
 
 Conventions:
+
 - TypeScript strict mode, ESM (`type: module` — use `.js` extensions in
   relative imports, matching `src/index.ts`).
 - Never accept an attestation as valid without all five checks in the
@@ -36,5 +37,5 @@ Conventions:
   enroll a camera without it (503/502), it's not an optional add-on.
 
 Coordinate with vision-cmos (Python service) for anything touching PRNU
-matching internals, and with blockchain-attestation for HCS/escrow/CRE schema
+matching internals, and with blockchain-attestation for HCS/escrow schema
 questions.

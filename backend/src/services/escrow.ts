@@ -94,8 +94,8 @@ export function escrowAmountUnits(): number {
 export function escrowConfigured(): boolean {
   return Boolean(
     process.env.HEDERA_OPERATOR_ID?.trim() &&
-      process.env.HEDERA_OPERATOR_KEY?.trim() &&
-      process.env.HEDERA_ESCROW_ACCOUNT_ID?.trim(),
+    process.env.HEDERA_OPERATOR_KEY?.trim() &&
+    process.env.HEDERA_ESCROW_ACCOUNT_ID?.trim(),
   );
 }
 
@@ -247,7 +247,7 @@ export async function lockCameraEscrow(input: {
 
 /**
  * Slash a camera's locked bond: transfer it out of the escrow vault to the
- * platform operator account. Called when a CRE fraud review returns SLASH.
+ * platform operator account. Called when fraud is confirmed.
  */
 export async function forfeitCameraEscrow(input: {
   cameraId: string;
@@ -337,9 +337,9 @@ export async function forfeitCameraEscrow(input: {
 }
 
 /**
- * Fraud confirmed (CRE SLASH verdict): flag the camera and, if it has an
- * active bond, slash it. Re-staking (see cameras.ts POST /:id/restake) is
- * what clears is_fake again — a clean attestation alone no longer does.
+ * Fraud confirmed: flag the camera and, if it has an active bond, slash it.
+ * Re-staking (see cameras.ts POST /:id/restake) is what clears is_fake again
+ * — a clean attestation alone no longer does.
  */
 export async function slashCameraForFraud(cameraId: string): Promise<void> {
   const { data: camera } = await supabase

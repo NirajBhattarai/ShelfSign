@@ -357,7 +357,7 @@ cameraRouter.post(
 );
 
 // HBAR bond is mandatory for attestation. Locks (or relocks) it for a camera
-// that has none — after a CRE SLASH forfeiture, or a legacy camera enrolled
+// that has none — after a bond slash/forfeiture, or a legacy camera enrolled
 // before escrow was mandatory. Clears the fraud flag once locked.
 cameraRouter.post("/:id/restake", async (req: AuthedRequest, res) => {
   if (req.user!.role !== "supplier") {
@@ -425,15 +425,11 @@ cameraRouter.post("/:id/restake", async (req: AuthedRequest, res) => {
   }
 });
 
-// Update a camera's own host/username/password (e.g. after a fraud flag —
-// pointing a supplier's registered camera back at the correct device, or
-// fixing wrong credentials). Clears the PUF enrollment: the previous
-// cmos_account/coordinates belong to whatever device the OLD host was, and
-// are meaningless (or actively wrong) for a different one — the next
-// attest/verify call re-enrolls automatically via ensurePufEnrollment().
-// Does NOT touch is_fake/escrow_status; those clear via a fresh successful
-// attest or POST /:id/restake, so a credential fix alone can't silently
-// restore "verified" without proving the camera actually works now.
+// Update a camera's own host/username/password (e.g. for the demo swap:
+// point a verified camera at Fake Cam, or point an unverified one back at
+// the real Hikvision). Clears PUF enrollment so the next attest re-enrolls
+// against the new host. Does NOT touch is_fake / fraud_detected_at /
+// escrow — leave trust status exactly as-is until an attest updates it.
 cameraRouter.put("/:id", async (req: AuthedRequest, res) => {
   if (req.user!.role !== "supplier") {
     res.status(403).json({ error: "supplier_only" });
@@ -462,48 +458,14 @@ cameraRouter.put("/:id", async (req: AuthedRequest, res) => {
     return;
   }
 
-  const hostTrim = host.trim();
-  const userTrim = username.trim();
-  const passTrim = password.trim();
-
-  // Probe the new host so Edit IP → Fake Cam stub is flagged immediately,
-  // and Edit IP → real Hikvision can clear a prior synthetic flag only after
-  // deviceInfo looks physical (full trust still requires a successful attest).
-  let syntheticHost = false;
-  try {
-    const visionUrl = await getVisionServiceUrl();
-    const probeRes = await fetch(`${visionUrl}/cmos/device-check`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        host: hostTrim,
-        username: userTrim,
-        password: passTrim,
-      }),
-      signal: AbortSignal.timeout(15_000),
-    });
-    if (probeRes.ok) {
-      const probe = (await probeRes.json()) as { synthetic?: boolean };
-      syntheticHost = Boolean(probe.synthetic);
-    }
-  } catch (err) {
-    console.error("camera device-check failed", err);
-  }
-
   const { data: updated, error } = await supabase
     .from("cameras")
     .update({
-      host: hostTrim,
-      username: userTrim,
-      password: passTrim,
+      host: host.trim(),
+      username: username.trim(),
+      password: password.trim(),
       cmos_account: null,
-      enrollment_status: syntheticHost ? "failed" : "pending",
-      ...(syntheticHost
-        ? {
-            is_fake: true,
-            fraud_detected_at: new Date().toISOString(),
-          }
-        : {}),
+      enrollment_status: "pending",
     })
     .eq("id", camera.id)
     .select(ESCROW_CAMERA_COLUMNS)
@@ -517,7 +479,7 @@ cameraRouter.put("/:id", async (req: AuthedRequest, res) => {
   // Best-effort: forget vision-service's on-disk enrollment for the OLD
   // device. Without this, ensurePufEnrollment() finds a still-enrolled
   // record under this camera id and re-syncs the DB to that stale account
-  // instead of re-enrolling against the new host — silently undoing the fix.
+  // instead of re-enrolling against the new host.
   try {
     const visionUrl = await getVisionServiceUrl();
     await fetch(`${visionUrl}/cmos/enrollment/${camera.id}`, {
