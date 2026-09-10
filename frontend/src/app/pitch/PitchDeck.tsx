@@ -63,11 +63,11 @@ function SlideHero(_p: SlideProps) {
               Shelf<em>Sign</em>
             </h1>
             <p className="lede paper enter-up d2">
-              Camera-backed stock, signed from the silicon — attested with a
-              live nonce.
+              Stock proof from the camera chip itself — this sensor, right now,
+              not a photo and not a replay.
             </p>
             <div className="ticker enter-up d3">
-              cam_cmos · nonce · imageHash · HCS
+              silicon ID · live nonce · signed frame · Hedera
             </div>
           </div>
           <div className="cam-stage enter-scale d2">
@@ -321,17 +321,32 @@ function SlideInsight(_p: SlideProps) {
         <h2 className="headline xl enter-up d1">
           Software trust ≠ warehouse trust.
         </h2>
+        <p className="lede enter-up d1 insight-lede">
+          A laptop can sign any JPEG. A bonded camera must prove{" "}
+          <em>which chip</em> answered <em>which challenge</em> — next slide
+          shows how.
+        </p>
         <div className="insight-compare">
           <div className="insight-box enter-left d2">
             <div className="lab">SOFTWARE KEY</div>
             <p className="body">“Someone with the key signed this.”</p>
+            <ul className="insight-fns">
+              <li>Private key lives on a laptop</li>
+              <li>Any photo can get a signature</li>
+              <li>Old footage replays easily</li>
+            </ul>
           </div>
           <div className="insight-vs enter-up d3">VS</div>
           <div className="insight-box hot enter-right d3">
-            <div className="lab">CAMERA + LIVE NONCE</div>
+            <div className="lab">THIS CAMERA · RIGHT NOW</div>
             <p className="body">
-              “THIS identified camera answered THIS challenge.”
+              “This silicon answered this one-time challenge.”
             </p>
+            <ul className="insight-fns hot">
+              <li>Chip fingerprint → camera identity</li>
+              <li>Fresh nonce burned into the frame</li>
+              <li>Sensor noise catches swaps &amp; stubs</li>
+            </ul>
           </div>
         </div>
       </div>
@@ -340,54 +355,56 @@ function SlideInsight(_p: SlideProps) {
 }
 
 function SlideSolution({ step }: SlideProps) {
-  const flow = [
-    { label: "CAMERA", icon: "camera" },
-    { label: "SILICON ID", icon: "fingerprint" },
-    { label: "LIVE NONCE", icon: "scan-line" },
-    { label: "VISION", icon: "scan-search" },
-    { label: "VERIFY", icon: "badge-check" },
-    { label: "HEDERA HCS", icon: "radio-tower" },
+  const legends = [
+    {
+      icon: "cpu",
+      title: "SILICON",
+      body: "Behind the lens sits the CMOS image sensor — a silicon chip that turns light into pixels.",
+    },
+    {
+      icon: "fingerprint",
+      title: "IMPURITY → PUF",
+                  body: "Random manufacturing defects leave a unique noise pattern. That Physical Unclonable Function becomes the camera's crypto identity.",
+    },
+    {
+      icon: "scan-line",
+      title: "OSD NONCE",
+      body: "Server sends a one-time code; the camera burns it onto the live JPEG. OCR must read it back — proves right now, not a replay.",
+    },
   ] as const;
 
   return (
     <>
       <Viewfinder />
-      <div className="shell top">
-        <div className="kicker enter-up">SHELFSIGN</div>
+      <div className="shell top sol-teach">
+        <div className="kicker enter-up">HOW IT WORKS</div>
         <h2 className="headline wide enter-up d1">
-          Live stock from this camera, right now.
+          Silicon impurity → camera ID → live nonce.
         </h2>
-        <div className="promise-row">
-          <Frag show={step > 0} className="glow-chip">
-            <img src={`${A}/icons/camera.svg`} alt="" aria-hidden />
-            THIS CAMERA
-          </Frag>
-          <Frag show={step > 1} className="glow-chip">
-            <img src={`${A}/icons/radio.svg`} alt="" aria-hidden />
-            RIGHT NOW
-          </Frag>
-        </div>
-        <div className="flow enter-up d3">
-          {flow.map((n, i) => (
-            <span key={n.label} className="flow-item">
-              {i > 0 ? <span className="arr">→</span> : null}
-              <span className="node">
-                <span className="node-ico" aria-hidden>
-                  <img src={`${A}/icons/${n.icon}.svg`} alt="" />
-                </span>
-                {n.label}
-              </span>
-            </span>
-          ))}
-        </div>
-        <div className="solution-media enter-scale d4">
+        <p className="lede enter-up d2 sol-teach-lede">
+          Like a camera cutaway, but we zoom into the chip: impurities make the
+          fingerprint (PUF), then a live nonce proves the frame is fresh.
+        </p>
+
+        <div className="puf-diagram enter-scale d3">
           <img
-            src={`${A}/ui-stock-detail.png`}
-            alt="Buyer stock with live camera"
+            src={`${A}/cmos-puf-explainer.jpg`}
+            alt="How CMOS PUF works: camera cross-section, silicon impurities, PUF extraction, live OSD nonce"
           />
-          <div className="cap">
-            REAL UI · BUYER STOCK · CMOS SCORE · LIVE FEED
-          </div>
+        </div>
+
+        <div className="puf-legend">
+          {legends.map((item, i) => (
+            <Frag key={item.title} show={step > i} className="puf-legend-card">
+              <span className="ico-well copper">
+                <img src={`${A}/icons/${item.icon}.svg`} alt="" />
+              </span>
+              <div>
+                <div className="puf-legend-title">{item.title}</div>
+                <div className="puf-legend-body">{item.body}</div>
+              </div>
+            </Frag>
+          ))}
         </div>
       </div>
     </>
@@ -398,51 +415,58 @@ const PIPELINE = [
   {
     num: "01",
     name: "ENROLL",
-    detail: "CMOS / PUF",
+    detail: "CMOS PUF + BCH",
     icon: "fingerprint",
-    say: "Lock this physical camera’s silicon identity.",
+    say: "Capture silicon noise → stabilize with BCH → camera account from this chip.",
+    fns: "enroll_from_camera · BCH helper · majority vote · IRCUT settle",
   },
   {
     num: "02",
     name: "BOND",
-    detail: "10 HBAR",
+    detail: "10 ℏ escrow",
     icon: "lock",
-    say: "Stake 10 ℏ — economic skin in the game.",
+    say: "Lock HBAR into the escrow vault — no bond, no enrollment.",
+    fns: "lockCameraEscrow · HEDERA_ESCROW_ACCOUNT · slash on fraud",
   },
   {
     num: "03",
     name: "CHALLENGE",
     detail: "nonce + OSD",
     icon: "radio",
-    say: "Burn a fresh nonce into the live frame.",
+    say: "Burn a fresh one-time code into the live frame via camera OSD.",
+    fns: "issueNonce · set_osd_text · ocr_osd_nonce · OSD crop OCR",
   },
   {
     num: "04",
     name: "WITNESS",
-    detail: "CMOS match",
+    detail: "PUF regen + PRNU",
     icon: "eye",
-    say: "Prove the same sensor answered.",
+    say: "Re-derive the chip key on-device; PRNU proves the same physical sensor.",
+    fns: "respond_to_challenge · fx_regenerate · prnu_correlate · assert_physical_device",
   },
   {
     num: "05",
     name: "DETECT",
     detail: "YOLO evidence",
     icon: "scan-search",
-    say: "Read stock from that camera frame.",
+    say: "Count stock on the same OSD-bound JPEG the challenge just signed.",
+    fns: "vision/detect · yolov8n-stock · imageHash on attested frame",
   },
   {
     num: "06",
     name: "VERIFY",
-    detail: "sig + hash",
+    detail: "sig + hashes",
     icon: "badge-check",
-    say: "Check signature and image integrity.",
+    say: "Check signature, silicon match, nonce freshness, and image hash.",
+    fns: "verifyAttestation · cmos_score · osdMatch · modelHash",
   },
   {
     num: "07",
     name: "PUBLISH",
     detail: "Hedera HCS",
     icon: "radio-tower",
-    say: "Anchor the proof on Hedera HCS.",
+    say: "Anchor attestation.v1 on Hedera — buyers unlock via x402.",
+    fns: "publishAttestationToHcs · is_fake slash · restake to resume",
   },
 ] as const;
 
@@ -454,11 +478,11 @@ function SlidePipeline({ step }: SlideProps) {
       <div className="shell top">
         <div className="kicker enter-up">TRUST PIPELINE</div>
         <h2 className="headline enter-up d1">
-          Seven stages. One physical root.
+          From enroll to on-chain proof.
         </h2>
         <p className="lede enter-up d2 pipe-lede">
-          Point at each icon — camera → silicon → live challenge → evidence →
-          chain.
+          Seven steps: lock the camera’s silicon ID, challenge it live, count
+          stock on that frame, then publish — each stage blocks a different fake.
         </p>
         <div className="rail-wrap">
           <div className="rail-line">
@@ -488,11 +512,15 @@ function SlidePipeline({ step }: SlideProps) {
           {active ? (
             <>
               <span className="pipe-cue-num">{active.num}</span>
-              <span className="pipe-cue-say">{active.say}</span>
+              <div className="pipe-cue-body">
+                <span className="pipe-cue-say">{active.say}</span>
+                <span className="pipe-cue-fns">{active.fns}</span>
+              </div>
             </>
           ) : (
             <span className="pipe-cue-say dim">
-              Tap forward to walk the trust path.
+              Tap forward — enroll → bond → OSD challenge → PUF witness → YOLO →
+              verify → HCS.
             </span>
           )}
         </div>
@@ -503,52 +531,60 @@ function SlidePipeline({ step }: SlideProps) {
 
 const LAYERS = [
   {
-    name: "CMOS",
-    desc: "Physical camera identity",
+    name: "CMOS PUF",
+    desc: "Camera identity from silicon impurities",
     icon: "fingerprint",
-    say: "Silicon proves which camera shot this.",
+    say: "Manufacturing noise → BCH helper → crypto account for this chip.",
+    fns: "enroll_from_camera · puf_fuzzy_extractor",
   },
   {
-    name: "NONCE / OSD",
-    desc: "Freshness burned into the live frame",
+    name: "OSD NONCE",
+    desc: "One-time code burned into the JPEG",
     icon: "scan-line",
-    say: "A live challenge — not a replayed photo.",
+    say: "Server challenge written on-camera; OCR must recover it from the frame.",
+    fns: "set_osd_text · ocr_osd_nonce",
   },
   {
-    name: "SIGN + HASH",
-    desc: "Integrity of image and signature",
-    icon: "hash",
-    say: "Tamper with the bytes and it fails.",
+    name: "PRNU MATCH",
+    desc: "Second fingerprint from sensor noise",
+    icon: "layers",
+    say: "Independent of the signing key — catches camera swaps and replays.",
+    fns: "noise_residual · prnu_correlate",
   },
   {
-    name: "HCS LOG",
-    desc: "Auditable Hedera record",
-    icon: "scroll",
-    say: "The proof is anchored on-chain.",
+    name: "PUF REGEN",
+    desc: "Same sensor regenerates the same key",
+    icon: "cpu",
+    say: "IRCUT + majority vote + BCH — wrong device cannot re-derive.",
+    fns: "respond_to_challenge · fx_regenerate",
   },
   {
-    name: "MODEL HASH",
-    desc: "Vision provenance",
-    icon: "file-digit",
-    say: "Which detector produced this evidence.",
-  },
-  {
-    name: "FRAUD FLAG",
-    desc: "Suspicious evidence → Unverified",
+    name: "SYNTHETIC GATE",
+    desc: "Reject stubs and replayed JPEGs",
     icon: "alert",
-    say: "Fake or mismatch → flagged, not trusted.",
+    say: "Fake-cam / phone uploads fail closed before signing.",
+    fns: "assert_physical_device · is_fake flag",
   },
   {
-    name: "10 ℏ BOND",
-    desc: "Economic commitment on enroll",
+    name: "SIG + HASH",
+    desc: "Integrity of image and attestation",
+    icon: "hash",
+    say: "Edit the bytes after capture and verification fails.",
+    fns: "secp256k1 sign · imageHash · modelHash",
+  },
+  {
+    name: "HCS + BOND",
+    desc: "On-chain log + 10 ℏ economic stake",
     icon: "lock",
-    say: "Skin in the game to enroll a camera.",
+    say: "Anchor on Hedera; slash the bond on fraud; restake to resume.",
+    fns: "publishAttestationToHcs · slashCameraForFraud",
   },
   {
-    name: "x402",
+    name: "x402 UNLOCK",
     desc: "Pay-per-query access to evidence",
     icon: "credit-card",
-    say: "Buyers pay to unlock the attested proof.",
+    say: "Buyers pay to open the attested proof — no free silent peek.",
+    fns: "requireX402Payment · Blocky402 settle",
   },
 ] as const;
 
@@ -563,7 +599,8 @@ function SlideStack({ step }: SlideProps) {
           Not one proof. A stack of proofs.
         </h2>
         <p className="lede enter-up d2 stack-lede">
-          Eight layers. Point at any card — each one blocks a different fake.
+          After you know silicon → PUF → nonce, here is every layer that still
+          has to pass — each blocks a different cheat.
         </p>
         <div className="stack stack-grid">
           {LAYERS.map((item, i) => (
@@ -592,11 +629,14 @@ function SlideStack({ step }: SlideProps) {
               <span className="pipe-cue-num">
                 {String(Math.min(step, LAYERS.length)).padStart(2, "0")}
               </span>
-              <span className="pipe-cue-say">{active.say}</span>
+              <div className="pipe-cue-body">
+                <span className="pipe-cue-say">{active.say}</span>
+                <span className="pipe-cue-fns">{active.fns}</span>
+              </div>
             </>
           ) : (
             <span className="pipe-cue-say dim">
-              Tap forward — each layer is a different defense.
+              Tap forward — each layer names the defense function.
             </span>
           )}
         </div>
@@ -624,16 +664,16 @@ function SlideWho(_p: SlideProps) {
             <div className="who-k">ISAPI STUB · NO CMOS</div>
             <h3 className="who-title">Looks like a feed.</h3>
             <p className="who-copy">
-              Phone photo, replay, or stub stream — fails silicon match.
+              Phone photo, replay, or stub stream — no physical CMOS fingerprint.
             </p>
             <ul className="who-bullets">
               <li>
                 <img src={`${A}/icons/x.svg`} alt="" />
-                No physical sensor ID
+                No silicon impurity / PUF match
               </li>
               <li>
                 <img src={`${A}/icons/x.svg`} alt="" />
-                Replay / upload accepted by software trust
+                Replay / upload fools software keys
               </li>
               <li>
                 <img src={`${A}/icons/alert.svg`} alt="" />
@@ -685,20 +725,20 @@ function SlideWho(_p: SlideProps) {
             <div className="who-k">HIKVISION · DS-2CD1323G0E-I</div>
             <h3 className="who-title">Same frame. Proven silicon.</h3>
             <p className="who-copy">
-              Live nonce on a bonded camera — buyers unlock attested stock.
+              Live OSD nonce on a bonded camera — buyers unlock attested stock.
             </p>
             <ul className="who-bullets good">
               <li>
                 <img src={`${A}/icons/check.svg`} alt="" />
-                Physical CMOS identity
+                CMOS PUF identity
               </li>
               <li>
                 <img src={`${A}/icons/check.svg`} alt="" />
-                Fresh OSD challenge
+                Fresh OSD challenge on the frame
               </li>
               <li>
                 <img src={`${A}/icons/check.svg`} alt="" />
-                Hedera HCS + x402 access
+                Hedera HCS + x402 unlock
               </li>
             </ul>
           </div>
@@ -741,11 +781,11 @@ function SlideDemo({ step }: SlideProps) {
         </div>
         <div className="break-row">
           <Frag show={step > 0} className="break-badge">
-            <span>REPLAY</span>
+            <span>REPLAY (old nonce)</span>
             <span className="mark">✕</span>
           </Frag>
           <Frag show={step > 1} className="break-badge">
-            <span>FAKE CAMERA</span>
+            <span>FAKE CAM (no PUF)</span>
             <span className="mark">✕</span>
           </Frag>
         </div>
@@ -823,7 +863,7 @@ function SlideClose(_p: SlideProps) {
             <span className="headline-break"> from the silicon up.</span>
           </h2>
           <p className="close-sub enter-up d2">
-            This camera. Right now. Signed proof buyers can unlock.
+            This chip. This nonce. Signed proof buyers can unlock.
           </p>
           <div className="close-cta enter-up d3">
             <span className="close-cta-label">Next</span>
@@ -833,19 +873,33 @@ function SlideClose(_p: SlideProps) {
           <ul className="close-proofs enter-up d4">
             <li>
               <img src={`${A}/icons/fingerprint.svg`} alt="" />
-              CMOS
+              <span className="close-proof-lab">CMOS PUF</span>
+              <span className="close-proof-hint">chip ID</span>
             </li>
             <li>
               <img src={`${A}/icons/scan-line.svg`} alt="" />
-              LIVE NONCE
+              <span className="close-proof-lab">OSD NONCE</span>
+              <span className="close-proof-hint">right now</span>
+            </li>
+            <li>
+              <img src={`${A}/icons/layers.svg`} alt="" />
+              <span className="close-proof-lab">PRNU</span>
+              <span className="close-proof-hint">noise match</span>
+            </li>
+            <li>
+              <img src={`${A}/icons/cpu.svg`} alt="" />
+              <span className="close-proof-lab">BCH</span>
+              <span className="close-proof-hint">stable key</span>
             </li>
             <li>
               <img src={`${A}/icons/radio-tower.svg`} alt="" />
-              HEDERA HCS
+              <span className="close-proof-lab">HCS</span>
+              <span className="close-proof-hint">on-chain</span>
             </li>
             <li>
               <img src={`${A}/icons/credit-card.svg`} alt="" />
-              x402
+              <span className="close-proof-lab">x402</span>
+              <span className="close-proof-hint">pay to see</span>
             </li>
           </ul>
           <div className="close-meta enter-up d5">
@@ -868,7 +922,7 @@ const SLIDES: {
   { id: "problem", steps: 7, render: (p) => <SlideProblem {...p} /> },
   { id: "why", steps: 11, render: (p) => <SlideWhy {...p} /> },
   { id: "insight", steps: 0, render: (p) => <SlideInsight {...p} /> },
-  { id: "solution", steps: 2, render: (p) => <SlideSolution {...p} /> },
+  { id: "solution", steps: 3, render: (p) => <SlideSolution {...p} /> },
   { id: "pipeline", steps: 7, render: (p) => <SlidePipeline {...p} /> },
   { id: "stack", steps: 8, render: (p) => <SlideStack {...p} /> },
   { id: "who", steps: 0, bleed: true, render: (p) => <SlideWho {...p} /> },
@@ -880,7 +934,10 @@ const SLIDES: {
 export default function PitchDeck() {
   const [index, setIndex] = useState(0);
   const [step, setStep] = useState(0);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [wantFullscreen, setWantFullscreen] = useState(false);
   const touchX = useRef<number | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
 
   const slide = SLIDES[index];
   const maxStep = slide.steps;
@@ -911,6 +968,33 @@ export default function PitchDeck() {
     [index, step, maxStep],
   );
 
+  const toggleFullscreen = useCallback(async () => {
+    const el = rootRef.current;
+    if (!el) return;
+    try {
+      if (!document.fullscreenElement) {
+        await el.requestFullscreen();
+      } else {
+        await document.exitFullscreen();
+      }
+    } catch {
+      /* browser may block without gesture */
+    }
+  }, []);
+
+  useEffect(() => {
+    const onFs = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener("fullscreenchange", onFs);
+    return () => document.removeEventListener("fullscreenchange", onFs);
+  }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("fullscreen") === "1" || params.get("fs") === "1") {
+      setWantFullscreen(true);
+    }
+  }, []);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (
@@ -930,16 +1014,21 @@ export default function PitchDeck() {
       } else if (e.key === "End") {
         setIndex(SLIDES.length - 1);
         setStep(0);
+      } else if (e.key === "f" || e.key === "F") {
+        e.preventDefault();
+        void toggleFullscreen();
+      } else if (e.key === "Escape" && wantFullscreen && !document.fullscreenElement) {
+        setWantFullscreen(false);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [go]);
+  }, [go, toggleFullscreen, wantFullscreen]);
 
   useEffect(() => {
-    const hash = `#/${index}`;
-    if (window.location.hash !== hash) {
-      history.replaceState(null, "", hash);
+    const next = `${window.location.pathname}${window.location.search}#/${index}`;
+    if (`${window.location.pathname}${window.location.search}${window.location.hash}` !== next) {
+      history.replaceState(null, "", next);
     }
   }, [index]);
 
@@ -969,9 +1058,15 @@ export default function PitchDeck() {
     [index, step, maxStep],
   );
 
+  const enterFullscreenFromGate = () => {
+    setWantFullscreen(false);
+    void toggleFullscreen();
+  };
+
   return (
     <div
-      className="pitch"
+      ref={rootRef}
+      className={`pitch${isFullscreen ? " is-fullscreen" : ""}`}
       onTouchStart={onTouchStart}
       onTouchEnd={onTouchEnd}
       role="presentation"
@@ -1029,7 +1124,32 @@ export default function PitchDeck() {
         >
           ›
         </button>
+        <button
+          type="button"
+          className="pitch-fs-btn"
+          aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+          aria-pressed={isFullscreen}
+          title="Fullscreen (F)"
+          onClick={() => void toggleFullscreen()}
+        >
+          {isFullscreen ? "Exit" : "Full"}
+        </button>
       </div>
+
+      {wantFullscreen && !isFullscreen ? (
+        <div className="pitch-fs-gate">
+          <button
+            type="button"
+            className="pitch-fs-gate-btn"
+            onClick={enterFullscreenFromGate}
+          >
+            Open fullscreen
+          </button>
+          <p className="pitch-fs-gate-hint">
+            Or press <kbd>F</kbd> · Esc to skip
+          </p>
+        </div>
+      ) : null}
     </div>
   );
 }
