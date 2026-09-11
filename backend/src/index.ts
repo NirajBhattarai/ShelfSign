@@ -76,12 +76,18 @@ app.use("/categories", categoryRouter);
 app.use("/warehouses", warehouseRouter);
 app.use("/auth", authRouter);
 
-app.listen(port, () => {
-  console.log(`ShelfSign backend listening on :${port}`);
-  console.log(
-    `HCS topic: ${process.env.HEDERA_HCS_TOPIC_ID?.trim() || "(not configured)"}`,
-  );
-  console.log(
-    `Pitch deck: ${process.env.PUBLIC_FRONTEND_URL || "http://localhost:3000"}/pitch`,
-  );
-});
+// Vercel imports this module as a serverless function handler instead of
+// binding a port, so only listen when running as a standalone process.
+if (!process.env.VERCEL) {
+  app.listen(port, () => {
+    console.log(`ShelfSign backend listening on :${port}`);
+    console.log(
+      `HCS topic: ${process.env.HEDERA_HCS_TOPIC_ID?.trim() || "(not configured)"}`,
+    );
+    console.log(
+      `Pitch deck: ${process.env.PUBLIC_FRONTEND_URL || "http://localhost:3000"}/pitch`,
+    );
+  });
+}
+
+export default app;
