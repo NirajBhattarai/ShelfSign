@@ -12,7 +12,7 @@ COPY requirements.txt .
 # Plain "torch>=2.3" resolves to the default PyPI build, which bundles ~3GB
 # of CUDA libraries no CPU-only host needs. Install the CPU wheel first so
 # it already satisfies the requirements.txt constraint and pip skips it.
-RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu
+RUN pip install --no-cache-dir torch==2.8.0+cpu torchvision==0.23.0+cpu --extra-index-url https://download.pytorch.org/whl/cpu
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
