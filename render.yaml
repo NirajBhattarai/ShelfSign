@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: shelfsign-vision-service
+    runtime: python
+    plan: starter
+    rootDir: vision-service
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn src.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.9.18
+      - key: YOLO_MODEL_NAME
+        value: yolov8n-stock-v1
+      - key: YOLO_WEIGHTS
+        value: yolov8n.pt
+      - key: CMOS_ENROLLMENTS_DIR
+        value: data/enrollments
+      - key: HIKVISION_HOST
+        sync: false
+      - key: HIKVISION_PORT
+        sync: false
+      - key: HIKVISION_USER
+        sync: false
+      - key: HIKVISION_PASS
+        sync: false
