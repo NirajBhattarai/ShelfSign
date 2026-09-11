@@ -9,7 +9,7 @@ Native Next.js deck (no Reveal.js).
 
 ## Controls
 
-- `→` / `Space` / tap next — advance fragment, then slide
+- `→` / `Space` / tap next — advance slide
 - `←` — back
 - `F` — toggle fullscreen
 - Swipe on touch devices
@@ -35,15 +35,20 @@ Buyers get stock proof from **this camera chip, right now** — not a signed JPE
 ## Slide map + talk track
 
 1. **Hero** — “Stock proof from the chip itself — this sensor, right now.”
-2. **Buyer problem** — Trust breaks before the order.
-3. **Why today fails** — Easy to fake. Hard to prove.
-4. **Insight** — Software key vs this camera / right now. Tease: next slide shows _how_.
-5. **Solution (teach)** — Diagram: silicon → impurity/PUF → OSD nonce. Pause on each legend.
-6. **Pipeline** — Enroll → bond → challenge → witness → detect → verify → publish (function names in cue).
-7. **Anti-fake stack** — Eight layers; each blocks a different cheat.
-8. **Who** — Fake cam (no PUF) vs real CMOS + roles.
-9. **Shipped** — Bond, x402 price, nonce TTL, real UI.
-10. **Close** — Chip ID · right now · noise match · stable key · on-chain · pay to see.
+2. **Problem → solve** — Triptych all at once: warehouse photo · fake cam/phone · live bonded frame. Bottom rails: buyers can’t know vs ShelfSign proves. Hold and talk — no step-through.
+3. **Solution (teach)** — Diagram: silicon → impurity/PUF → OSD nonce (all legends visible).
+4. **Anti-fake stack** — Eight layers in one frame; each blocks a different cheat.
+5. **Who** — Fake cam (no PUF) vs real CMOS + roles.
+6. **Shipped** — Bond, x402 price, nonce TTL, real UI.
+7. **Close** — Chip ID · right now · noise match · stable key · on-chain · pay to see.
+
+**Skipped on purpose:** enroll → chain pipeline slide — show that live in the 2/10 demo.
+
+## Problem → solve — talk in 40 seconds
+
+- **Left photos:** “This is what buyers get — a warehouse shot and a camera frame. Looks real. Zero proof it’s current, this site, or this device.”
+- **Doubts:** Current? This warehouse? This camera? Right now?
+- **Right:** “ShelfSign answers with a bonded camera: silicon ID, live OSD nonce, signed frame, buyer unlock.”
 
 ## Solution slide — teach in 30 seconds
 

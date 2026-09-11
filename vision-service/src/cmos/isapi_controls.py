@@ -28,7 +28,7 @@ def set_osd_text(
     text: str,
     enabled: bool = True,
     position_x: int = 0,
-    position_y: int = 576,
+    position_y: int = 48,
 ) -> None:
     body = f"""<?xml version="1.0" encoding="UTF-8"?>
 <TextOverlay version="2.0" xmlns="http://www.hikvision.com/ver20/XMLSchema">

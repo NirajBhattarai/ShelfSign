@@ -6,6 +6,7 @@ import time
 from typing import Optional
 
 from src.cmos.capture import capture_snapshot
+from src.cmos.challenge_pipeline import osd_display_text
 from src.cmos.isapi_client import ISAPIClient
 from src.cmos.isapi_controls import set_osd_text
 from src.vision.detect import detect_stock
@@ -20,8 +21,9 @@ def capture_with_nonce(
 ) -> bytes:
     """Overlay the challenge nonce on the camera OSD, then grab a JPEG still."""
     client = ISAPIClient(host=host, user=username, password=password)
-    # Keep OSD short — Hikvision text overlays truncate long strings.
-    overlay = nonce if len(nonce) <= 32 else nonce[:30] + "…"
+    # Keep OSD short — Hikvision text overlays truncate long strings; OCR
+    # matches the same shortened label used by /cmos/challenge.
+    overlay = osd_display_text(nonce)
     set_osd_text(client, overlay, enabled=True)
     time.sleep(settle_s)
     cap = capture_snapshot(client)

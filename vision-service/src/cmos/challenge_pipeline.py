@@ -42,8 +42,42 @@ SETTLE_S = {
 # Extra AE settle after disabling OSD / confirming night — enroll uses
 # DEFAULT_SETTLE_S after the same actuator sequence.
 PUF_BIT_SETTLE_S = DEFAULT_SETTLE_S
-OSD_CROP = (0, 0, 260, 190)
+# Bottom-left band of the 1920×1080 still. On this Hikvision firmware,
+# normalized Y grows toward the TOP, so TextOverlay at low Y (≈48) lands
+# bottom-left — clear of the DateTimeOverlay (high Y ≈544 → top). The old
+# top crop + Y=576 placement made OCR latch onto `01-02-1970…` and fail
+# attest with osd_mismatch.
+OSD_CROP = (0, 880, 1100, 1080)
+OSD_POSITION = (0, 48)
 OSD_FUZZY_MATCH_THRESHOLD = 0.5
+# Hikvision TextOverlay truncates / soft-wraps long hex; keep burn-in short
+# enough for the crop + Tesseract. Full nonce still binds the challenge body.
+OSD_DISPLAY_LEN = 16
+
+
+def osd_display_text(nonce: str) -> str:
+    """Short hex label burned into the JPEG for OCR liveness."""
+    h = (nonce or "").strip().lower()
+    if h.startswith("0x"):
+        h = h[2:]
+    h = "".join(c for c in h if c in "0123456789abcdef")
+    if not h:
+        h = "0" * OSD_DISPLAY_LEN
+    return h[:OSD_DISPLAY_LEN].upper()
+
+
+def _normalize_osd_ocr(text: str) -> str:
+    return "".join(c for c in (text or "").upper() if c in "0123456789ABCDEF")
+
+
+def _osd_crop_box(image_size: tuple[int, int]) -> tuple[int, int, int, int]:
+    """Clamp/adapt OSD_CROP to the actual capture size (lab is 1920×1080)."""
+    w, h = image_size
+    x0, y0, x1, y1 = OSD_CROP
+    if h != 1080 or w != 1920:
+        # Keep a bottom-left band (~19% height, ~57% width).
+        return (0, max(0, int(h * 0.81)), min(w, int(w * 0.58)), h)
+    return (max(0, x0), max(0, y0), min(w, x1), min(h, y1))
 # Majority-vote fresh captures before BCH decode — cuts single-frame noise
 # that otherwise exceeds correction capacity on live Hikvision JPEG.
 CHALLENGE_BIT_SAMPLES = 3
@@ -93,7 +127,13 @@ def apply_required_state(client: ISAPIClient, required_state: dict) -> float:
 
     osd_nonce = required_state.get("osdNonce")
     if osd_nonce is not None:
-        set_osd_text(client, osd_nonce, enabled=True, position_x=0, position_y=576)
+        set_osd_text(
+            client,
+            osd_display_text(str(osd_nonce)),
+            enabled=True,
+            position_x=OSD_POSITION[0],
+            position_y=OSD_POSITION[1],
+        )
         wait_s = max(wait_s, SETTLE_S["osd"])
 
     ir_level = required_state.get("irLevel")
@@ -177,35 +217,69 @@ def ocr_osd_region(cap, box=OSD_CROP) -> list[str]:
         # Binary missing — treat OCR as unavailable (hackathon / bare install).
         return []
 
-    x0, y0, x1, y1 = box
+    x0, y0, x1, y1 = _osd_crop_box(cap.image.size) if box == OSD_CROP else box
+    w, h = cap.image.size
+    x0, y0, x1, y1 = max(0, x0), max(0, y0), min(w, x1), min(h, y1)
+    if x1 <= x0 or y1 <= y0:
+        return []
     base = cap.image.crop((x0, y0, x1, y1)).convert("L")
-    base = base.resize((base.width * 4, base.height * 4))
+    base = base.resize((base.width * 3, base.height * 3))
 
     lines: list[str] = []
     seen = set()
+    configs = (
+        "--psm 6 -c tessedit_char_whitelist=0123456789ABCDEFabcdefxX",
+        "--psm 7 -c tessedit_char_whitelist=0123456789ABCDEFabcdefxX",
+        "--psm 6",
+    )
     for variant in (
         ImageOps.autocontrast(base, cutoff=1),
         ImageOps.autocontrast(ImageOps.invert(base), cutoff=1),
     ):
-        try:
-            raw = pytesseract.image_to_string(variant, config="--psm 6")
-        except Exception:
-            continue
-        for line in raw.splitlines():
-            line = line.strip()
-            if line and line not in seen:
-                seen.add(line)
-                lines.append(line)
+        for config in configs:
+            try:
+                raw = pytesseract.image_to_string(variant, config=config)
+            except Exception:
+                continue
+            for line in raw.splitlines():
+                line = line.strip()
+                if line and line not in seen:
+                    seen.add(line)
+                    lines.append(line)
     return lines
+
+
+def _looks_like_datetime_osd(line: str) -> bool:
+    """Hikvision DateTimeOverlay sits in the same top band as the nonce."""
+    s = line.lower()
+    if any(w in s for w in ("mon", "tue", "wed", "thu", "fri", "sat", "sun")):
+        return True
+    if "1970" in s:
+        return True
+    # MM-DD-YYYY / MM-DD-YY style fragments OCR often emits as 01-02-19…
+    digits = "".join(c for c in s if c.isdigit())
+    if len(digits) >= 6 and "-" in s and "0x" not in s:
+        return True
+    return False
 
 
 def ocr_osd_nonce(cap, expected: Optional[str] = None, box=OSD_CROP) -> str:
     lines = ocr_osd_region(cap, box)
     if not lines:
         return ""
+    # Prefer non-datetime lines; fall back to all if filtering empties the set.
+    candidates = [l for l in lines if not _looks_like_datetime_osd(l)] or lines
     if expected:
-        return max(lines, key=lambda l: similarity(l, expected))
-    return lines[-1]
+        exp = osd_display_text(expected)
+        exp_norm = _normalize_osd_ocr(exp)
+
+        def score(line: str) -> float:
+            raw = similarity(line, exp)
+            norm = similarity(_normalize_osd_ocr(line), exp_norm)
+            return max(raw, norm)
+
+        return max(candidates, key=score)
+    return candidates[-1]
 
 
 def canonical_bytes_for_signing(attestation_without_signature: dict) -> bytes:
@@ -357,25 +431,38 @@ def respond_to_challenge(
                 prnu_match = False
 
         # --- Phase 2: OSD nonce burn-in + liveness (separate from PUF bits) ---
-        set_osd_text(client, nonce, enabled=True, position_x=0, position_y=576)
+        # Night/IR mono makes white TextOverlay nearly unreadable to Tesseract
+        # (OCR latches onto noise). Flip to day for the liveness still only —
+        # PUF bits were already extracted above.
+        set_ircut_mode(client, "day")
+        set_color(client, brightness=50, saturation=50, contrast=50)
+        time.sleep(SETTLE_S["ircut"])
+
+        osd_label = osd_display_text(nonce)
+        ox, oy = OSD_POSITION
+        set_osd_text(client, osd_label, enabled=True, position_x=ox, position_y=oy)
         time.sleep(SETTLE_S["osd"])
         osd_probe_before = capture_snapshot(client)
-        probe_alt = "zzzzzz" if nonce.lower() != "zzzzzz" else "yyyyyy"
-        set_osd_text(client, probe_alt, enabled=True, position_x=0, position_y=576)
+        probe_alt = "ZZZZZZZZZZZZZZZZ" if osd_label != "ZZZZZZZZZZZZZZZZ" else "YYYYYYYYYYYYYYYY"
+        set_osd_text(client, probe_alt, enabled=True, position_x=ox, position_y=oy)
         time.sleep(SETTLE_S["osd"])
         osd_probe_mid = capture_snapshot(client)
-        set_osd_text(client, nonce, enabled=True, position_x=0, position_y=576)
+        set_osd_text(client, osd_label, enabled=True, position_x=ox, position_y=oy)
         time.sleep(SETTLE_S["osd"])
         cap = capture_snapshot(client)
 
+        crop_box = _osd_crop_box(cap.image.size)
         osd_burned_in = osd_region_changed(
-            osd_probe_before.array, osd_probe_mid.array, OSD_CROP
-        ) or osd_region_changed(osd_probe_mid.array, cap.array, OSD_CROP)
+            osd_probe_before.array, osd_probe_mid.array, crop_box
+        ) or osd_region_changed(osd_probe_mid.array, cap.array, crop_box)
 
         mean_lum = mean_luminance(cap)
         sat_var = saturation_variance(cap)
-        osd_decoded = ocr_osd_nonce(cap, expected=nonce)
-        osd_similarity = similarity(osd_decoded, nonce) if nonce else 0.0
+        osd_decoded = ocr_osd_nonce(cap, expected=osd_label, box=crop_box)
+        osd_similarity = max(
+            similarity(osd_decoded, osd_label),
+            similarity(_normalize_osd_ocr(osd_decoded), _normalize_osd_ocr(osd_label)),
+        ) if nonce else 0.0
 
         # OSD must prove the nonce was burned into the capture pipeline.
         # Soft-passing when OCR is empty let fixture stubs (no overlay in

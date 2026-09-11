@@ -97,7 +97,7 @@ def extract_bits(arr: np.ndarray, coords: list[tuple[int, int]]) -> np.ndarray:
 
 
 # Must match challenge_pipeline.OSD_CROP — nonce glyphs are burned here.
-OSD_EXCLUDE_BOX = (0, 0, 280, 220)
+OSD_EXCLUDE_BOX = (0, 880, 1100, 1080)
 
 
 def select_stable_coords_from_burst(captures: list[np.ndarray], candidate_pool: int = 4096,

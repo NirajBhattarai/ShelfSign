@@ -32,22 +32,6 @@ function Hud({ children }: { children: ReactNode }) {
   );
 }
 
-function Frag({
-  show,
-  className = "",
-  children,
-}: {
-  show: boolean;
-  className?: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className={`frag fade-up ${className} ${show ? "is-shown" : ""}`}>
-      {children}
-    </div>
-  );
-}
-
 type SlideProps = { step: number };
 
 function SlideHero(_p: SlideProps) {
@@ -106,255 +90,94 @@ function SlideHero(_p: SlideProps) {
   );
 }
 
-function SlideProblem({ step }: SlideProps) {
+function SlideProblem(_p: SlideProps) {
   const doubts = [
-    { q: "CURRENT?", hint: "Or last week’s count?", icon: "clock" },
-    {
-      q: "THIS WAREHOUSE?",
-      hint: "Or another site’s photo?",
-      icon: "warehouse",
-    },
-    { q: "THIS CAMERA?", hint: "Or a phone upload?", icon: "camera" },
-    { q: "RIGHT NOW?", hint: "Or a replayed frame?", icon: "scan-line" },
+    { q: "Current?", icon: "clock" },
+    { q: "This warehouse?", icon: "warehouse" },
+    { q: "This camera?", icon: "camera" },
+    { q: "Right now?", icon: "scan-line" },
   ] as const;
 
-  const fakes = [
-    { t: "SPREADSHEET", icon: "file-spreadsheet" },
-    { t: "SCREENSHOT", icon: "image" },
-    { t: "PHONE PHOTO", icon: "smartphone" },
+  const solves = [
+    { q: "This camera", icon: "fingerprint" },
+    { q: "Live nonce", icon: "scan-line" },
+    { q: "Signed frame", icon: "shield-check" },
+    { q: "Buyer unlock", icon: "credit-card" },
   ] as const;
 
   return (
     <>
       <Viewfinder />
-      <div className="shell top">
+      <div className="shell top problem-solve-shell">
         <div className="kicker enter-up">THE BUYER PROBLEM</div>
-        <h2 className="headline wide enter-up d1">
-          Trust breaks before the order.
-        </h2>
-        <div className="problem-grid problem-grid-v2">
-          <div className="media-card enter-left d2">
-            <img src={`${A}/wh-cinematic.jpg`} alt="Warehouse aisle" />
-            <div className="stamp">
-              <div className="warn">NO CAMERA PROOF · NO LIVE CHALLENGE</div>
-              <div className="title">A photo is not evidence.</div>
-            </div>
-            <div className="media-scan" aria-hidden />
-          </div>
-          <div className="doubt-stack enter-right d3">
-            {doubts.map((d, i) => (
-              <Frag key={d.q} show={step > i} className="doubt doubt-soft">
-                <span className="ico-well muted">
+        <div className="ps-title-row enter-up d1">
+          <h2 className="headline wide ps-headline">
+            Trust breaks before the order.
+          </h2>
+          <p className="ps-lede">
+            Buyers get warehouse photos and camera frames with no proof they are
+            live, local, or from the enrolled sensor. ShelfSign answers with
+            silicon identity + a fresh challenge.
+          </p>
+        </div>
+
+        <div className="ps-tri enter-up d2">
+          <figure className="ps-tile bad">
+            <img src={`${A}/warehouse-unsplash.jpg`} alt="Warehouse aisle photo" />
+            <figcaption>
+              <span className="ps-flag bad">UNVERIFIED</span>
+              <strong>Warehouse photo</strong>
+              <em>Looks full — no live proof</em>
+            </figcaption>
+          </figure>
+          <figure className="ps-tile bad">
+            <img src={`${A}/fake-cam-live.jpg`} alt="Fake camera or phone frame" />
+            <figcaption>
+              <span className="ps-flag bad">UNVERIFIED</span>
+              <strong>Camera / phone frame</strong>
+              <em>Any device · any replay</em>
+            </figcaption>
+          </figure>
+          <figure className="ps-tile good">
+            <img src={`${A}/hik-live.jpg`} alt="Live bonded camera frame" />
+            <figcaption>
+              <span className="ps-flag good">VERIFIED</span>
+              <strong>Bonded live frame</strong>
+              <em>Silicon · nonce · right now</em>
+            </figcaption>
+          </figure>
+        </div>
+
+        <div className="ps-rails enter-up d3">
+          <div className="ps-rail bad">
+            <span className="ps-rail-lab">Buyers can&apos;t know</span>
+            <div className="ps-rail-items">
+              {doubts.map((d) => (
+                <span key={d.q} className="ps-pill bad">
                   <img src={`${A}/icons/${d.icon}.svg`} alt="" />
+                  {d.q}
                 </span>
-                <div className="doubt-copy">
-                  <span className="doubt-q">{d.q}</span>
-                  <span className="doubt-hint">{d.hint}</span>
-                </div>
-              </Frag>
-            ))}
-          </div>
-        </div>
-        <div className="fake-strip fake-strip-v2">
-          {fakes.map((item, i) => (
-            <Frag
-              key={item.t}
-              show={step > 4 + i}
-              className="fake-chip fake-soft"
-            >
-              <span className="ico-well muted">
-                <img src={`${A}/icons/${item.icon}.svg`} alt="" />
-              </span>
-              <span className="fake-name">{item.t}</span>
-              <span className="fake-badge soft">UNVERIFIED</span>
-            </Frag>
-          ))}
-        </div>
-      </div>
-    </>
-  );
-}
-
-function SlideWhy({ step }: SlideProps) {
-  const fakeItems = [
-    {
-      icon: "file-spreadsheet",
-      title: "SPREADSHEET",
-      sub: "Copied · edited · stale",
-    },
-    {
-      icon: "image",
-      title: "SCREENSHOT",
-      sub: "Cropped · reused · unproven",
-    },
-    {
-      icon: "smartphone",
-      title: "OLD PHOTO",
-      sub: "Yesterday’s full shelf",
-    },
-    {
-      icon: "key",
-      title: "SOFTWARE KEY",
-      sub: "Laptop signed a claim",
-    },
-  ] as const;
-  const needItems = [
-    { icon: "camera", title: "THIS CAMERA", sub: "Physical CMOS identity" },
-    { icon: "clock", title: "RIGHT NOW", sub: "Live challenge window" },
-    { icon: "scan-line", title: "LIVE NONCE", sub: "OSD burned into frame" },
-    { icon: "shield-check", title: "PHYSICAL ID", sub: "Silicon, not a file" },
-    { icon: "warehouse", title: "AUDIT TRAIL", sub: "Hedera HCS record" },
-  ] as const;
-
-  return (
-    <>
-      <Viewfinder />
-      <div className="shell top why-shell">
-        <div className="kicker enter-up">WHY TODAY FAILS</div>
-        <h2 className="headline enter-up d1">
-          Easy to fake.
-          <span className="headline-break"> Hard to prove.</span>
-        </h2>
-
-        <div className="duel duel-soft">
-          <div className="duel-col fake enter-left d2">
-            <div className="duel-head">
-              <span className="duel-eyebrow muted">WHAT BUYERS GET</span>
-              <span className="duel-stamp soft-reject">UNTRUSTED</span>
-            </div>
-            <div className="duel-stack">
-              {fakeItems.map((item, i) => (
-                <Frag
-                  key={item.title}
-                  show={step > i}
-                  className="duel-card soft-card"
-                >
-                  <span className="ico-well muted">
-                    <img src={`${A}/icons/${item.icon}.svg`} alt="" />
-                  </span>
-                  <div className="duel-card-body">
-                    <div className="duel-card-title">{item.title}</div>
-                    <div className="duel-card-sub">{item.sub}</div>
-                  </div>
-                  <span className="ico-well dim-x">
-                    <img src={`${A}/icons/x.svg`} alt="" />
-                  </span>
-                </Frag>
               ))}
             </div>
           </div>
-
-          <div className="duel-mid enter-up d3" aria-hidden>
-            <div className={`duel-orb ${step > 3 ? "hot" : ""}`}>
-              <span>VS</span>
-            </div>
-            <div className="duel-beam" />
-          </div>
-
-          <div className="duel-col need enter-right d3">
-            <div className="duel-head">
-              <span className="duel-eyebrow good">WHAT BUYERS NEED</span>
-              <span className="duel-stamp soft-accept">REQUIRED</span>
-            </div>
-            <div className="duel-visual">
-              <img src={`${A}/cam-frame.jpg`} alt="" />
-              <div className="duel-visual-scan" />
-              <div className="duel-visual-meta">
-                <span className="ok">● LIVE</span>
-                <span>THIS CAMERA · RIGHT NOW</span>
-              </div>
-            </div>
-            <div className="duel-need-list">
-              {needItems.map((item, i) => (
-                <Frag
-                  key={item.title}
-                  show={step > 4 + i}
-                  className="need-row soft-need"
-                >
-                  <span className="ico-well copper">
-                    <img src={`${A}/icons/${item.icon}.svg`} alt="" />
-                  </span>
-                  <span className="need-copy">
-                    <strong>{item.title}</strong>
-                    <em>{item.sub}</em>
-                  </span>
-                  <span className="ico-well ok">
-                    <img src={`${A}/icons/check.svg`} alt="" />
-                  </span>
-                </Frag>
+          <div className="ps-rail good">
+            <span className="ps-rail-lab">ShelfSign proves</span>
+            <div className="ps-rail-items">
+              {solves.map((s) => (
+                <span key={s.q} className="ps-pill good">
+                  <img src={`${A}/icons/${s.icon}.svg`} alt="" />
+                  {s.q}
+                </span>
               ))}
             </div>
           </div>
         </div>
-
-        <div className="duel-verdict">
-          <Frag show={step > 9} className="verdict-pill soft-fail">
-            <span className="ico-well muted">
-              <img src={`${A}/icons/circle-x.svg`} alt="" />
-            </span>
-            <span>
-              OLD IMAGE
-              <small>detached from the warehouse</small>
-            </span>
-          </Frag>
-          <Frag show={step > 10} className="verdict-pill soft-pass">
-            <span className="ico-well ok">
-              <img src={`${A}/icons/shield-check.svg`} alt="" />
-            </span>
-            <span>
-              LIVE CHALLENGE
-              <small>identified camera · fresh nonce</small>
-            </span>
-          </Frag>
-        </div>
       </div>
     </>
   );
 }
 
-function SlideInsight(_p: SlideProps) {
-  return (
-    <>
-      <Viewfinder />
-      <div className="shell">
-        <div className="kicker enter-up">THE INSIGHT</div>
-        <h2 className="headline xl enter-up d1">
-          Software trust ≠ warehouse trust.
-        </h2>
-        <p className="lede enter-up d1 insight-lede">
-          A laptop can sign any JPEG. A bonded camera must prove{" "}
-          <em>which chip</em> answered <em>which challenge</em> — next slide
-          shows how.
-        </p>
-        <div className="insight-compare">
-          <div className="insight-box enter-left d2">
-            <div className="lab">SOFTWARE KEY</div>
-            <p className="body">“Someone with the key signed this.”</p>
-            <ul className="insight-fns">
-              <li>Private key lives on a laptop</li>
-              <li>Any photo can get a signature</li>
-              <li>Old footage replays easily</li>
-            </ul>
-          </div>
-          <div className="insight-vs enter-up d3">VS</div>
-          <div className="insight-box hot enter-right d3">
-            <div className="lab">THIS CAMERA · RIGHT NOW</div>
-            <p className="body">
-              “This silicon answered this one-time challenge.”
-            </p>
-            <ul className="insight-fns hot">
-              <li>Chip fingerprint → camera identity</li>
-              <li>Fresh nonce burned into the frame</li>
-              <li>Sensor noise catches swaps &amp; stubs</li>
-            </ul>
-          </div>
-        </div>
-      </div>
-    </>
-  );
-}
-
-function SlideSolution({ step }: SlideProps) {
+function SlideSolution(_p: SlideProps) {
   const legends = [
     {
       icon: "cpu",
@@ -364,7 +187,7 @@ function SlideSolution({ step }: SlideProps) {
     {
       icon: "fingerprint",
       title: "IMPURITY → PUF",
-                  body: "Random manufacturing defects leave a unique noise pattern. That Physical Unclonable Function becomes the camera's crypto identity.",
+      body: "Random manufacturing defects leave a unique noise pattern. That Physical Unclonable Function becomes the camera's crypto identity.",
     },
     {
       icon: "scan-line",
@@ -382,8 +205,9 @@ function SlideSolution({ step }: SlideProps) {
           Silicon impurity → camera ID → live nonce.
         </h2>
         <p className="lede enter-up d2 sol-teach-lede">
-          Like a camera cutaway, but we zoom into the chip: impurities make the
-          fingerprint (PUF), then a live nonce proves the frame is fresh.
+          Live demo covers enroll → attest → chain. Here is the chip idea in one
+          frame: impurities make the fingerprint (PUF), then a live nonce proves
+          the frame is fresh.
         </p>
 
         <div className="puf-diagram enter-scale d3">
@@ -394,8 +218,8 @@ function SlideSolution({ step }: SlideProps) {
         </div>
 
         <div className="puf-legend">
-          {legends.map((item, i) => (
-            <Frag key={item.title} show={step > i} className="puf-legend-card">
+          {legends.map((item) => (
+            <div key={item.title} className="puf-legend-card frag is-shown">
               <span className="ico-well copper">
                 <img src={`${A}/icons/${item.icon}.svg`} alt="" />
               </span>
@@ -403,126 +227,8 @@ function SlideSolution({ step }: SlideProps) {
                 <div className="puf-legend-title">{item.title}</div>
                 <div className="puf-legend-body">{item.body}</div>
               </div>
-            </Frag>
+            </div>
           ))}
-        </div>
-      </div>
-    </>
-  );
-}
-
-const PIPELINE = [
-  {
-    num: "01",
-    name: "ENROLL",
-    detail: "CMOS PUF + BCH",
-    icon: "fingerprint",
-    say: "Capture silicon noise → stabilize with BCH → camera account from this chip.",
-    fns: "enroll_from_camera · BCH helper · majority vote · IRCUT settle",
-  },
-  {
-    num: "02",
-    name: "BOND",
-    detail: "10 ℏ escrow",
-    icon: "lock",
-    say: "Lock HBAR into the escrow vault — no bond, no enrollment.",
-    fns: "lockCameraEscrow · HEDERA_ESCROW_ACCOUNT · slash on fraud",
-  },
-  {
-    num: "03",
-    name: "CHALLENGE",
-    detail: "nonce + OSD",
-    icon: "radio",
-    say: "Burn a fresh one-time code into the live frame via camera OSD.",
-    fns: "issueNonce · set_osd_text · ocr_osd_nonce · OSD crop OCR",
-  },
-  {
-    num: "04",
-    name: "WITNESS",
-    detail: "PUF regen + PRNU",
-    icon: "eye",
-    say: "Re-derive the chip key on-device; PRNU proves the same physical sensor.",
-    fns: "respond_to_challenge · fx_regenerate · prnu_correlate · assert_physical_device",
-  },
-  {
-    num: "05",
-    name: "DETECT",
-    detail: "YOLO evidence",
-    icon: "scan-search",
-    say: "Count stock on the same OSD-bound JPEG the challenge just signed.",
-    fns: "vision/detect · yolov8n-stock · imageHash on attested frame",
-  },
-  {
-    num: "06",
-    name: "VERIFY",
-    detail: "sig + hashes",
-    icon: "badge-check",
-    say: "Check signature, silicon match, nonce freshness, and image hash.",
-    fns: "verifyAttestation · cmos_score · osdMatch · modelHash",
-  },
-  {
-    num: "07",
-    name: "PUBLISH",
-    detail: "Hedera HCS",
-    icon: "radio-tower",
-    say: "Anchor attestation.v1 on Hedera — buyers unlock via x402.",
-    fns: "publishAttestationToHcs · is_fake slash · restake to resume",
-  },
-] as const;
-
-function SlidePipeline({ step }: SlideProps) {
-  const active = step > 0 ? PIPELINE[Math.min(step, 7) - 1] : null;
-  return (
-    <>
-      <Viewfinder />
-      <div className="shell top">
-        <div className="kicker enter-up">TRUST PIPELINE</div>
-        <h2 className="headline enter-up d1">
-          From enroll to on-chain proof.
-        </h2>
-        <p className="lede enter-up d2 pipe-lede">
-          Seven steps: lock the camera’s silicon ID, challenge it live, count
-          stock on that frame, then publish — each stage blocks a different fake.
-        </p>
-        <div className="rail-wrap">
-          <div className="rail-line">
-            <div
-              className="fill"
-              style={{ width: `${Math.min(100, (step / 7) * 100)}%` }}
-            />
-          </div>
-          <div className="rail">
-            {PIPELINE.map((item, i) => (
-              <Frag
-                key={item.num}
-                show={step > i}
-                className={`stage${step === i + 1 ? " stage-hot" : ""}`}
-              >
-                <div className="num">{item.num}</div>
-                <div className="stage-ico" aria-hidden>
-                  <img src={`${A}/icons/${item.icon}.svg`} alt="" />
-                </div>
-                <div className="name">{item.name}</div>
-                <div className="detail">{item.detail}</div>
-              </Frag>
-            ))}
-          </div>
-        </div>
-        <div className={`pipe-cue${active ? " is-on" : ""}`} aria-live="polite">
-          {active ? (
-            <>
-              <span className="pipe-cue-num">{active.num}</span>
-              <div className="pipe-cue-body">
-                <span className="pipe-cue-say">{active.say}</span>
-                <span className="pipe-cue-fns">{active.fns}</span>
-              </div>
-            </>
-          ) : (
-            <span className="pipe-cue-say dim">
-              Tap forward — enroll → bond → OSD challenge → PUF witness → YOLO →
-              verify → HCS.
-            </span>
-          )}
         </div>
       </div>
     </>
@@ -534,62 +240,45 @@ const LAYERS = [
     name: "CMOS PUF",
     desc: "Camera identity from silicon impurities",
     icon: "fingerprint",
-    say: "Manufacturing noise → BCH helper → crypto account for this chip.",
-    fns: "enroll_from_camera · puf_fuzzy_extractor",
   },
   {
     name: "OSD NONCE",
     desc: "One-time code burned into the JPEG",
     icon: "scan-line",
-    say: "Server challenge written on-camera; OCR must recover it from the frame.",
-    fns: "set_osd_text · ocr_osd_nonce",
   },
   {
     name: "PRNU MATCH",
     desc: "Second fingerprint from sensor noise",
     icon: "layers",
-    say: "Independent of the signing key — catches camera swaps and replays.",
-    fns: "noise_residual · prnu_correlate",
   },
   {
     name: "PUF REGEN",
     desc: "Same sensor regenerates the same key",
     icon: "cpu",
-    say: "IRCUT + majority vote + BCH — wrong device cannot re-derive.",
-    fns: "respond_to_challenge · fx_regenerate",
   },
   {
     name: "SYNTHETIC GATE",
     desc: "Reject stubs and replayed JPEGs",
     icon: "alert",
-    say: "Fake-cam / phone uploads fail closed before signing.",
-    fns: "assert_physical_device · is_fake flag",
   },
   {
     name: "SIG + HASH",
     desc: "Integrity of image and attestation",
     icon: "hash",
-    say: "Edit the bytes after capture and verification fails.",
-    fns: "secp256k1 sign · imageHash · modelHash",
   },
   {
     name: "HCS + BOND",
     desc: "On-chain log + 10 ℏ economic stake",
     icon: "lock",
-    say: "Anchor on Hedera; slash the bond on fraud; restake to resume.",
-    fns: "publishAttestationToHcs · slashCameraForFraud",
   },
   {
     name: "x402 UNLOCK",
     desc: "Pay-per-query access to evidence",
     icon: "credit-card",
-    say: "Buyers pay to open the attested proof — no free silent peek.",
-    fns: "requireX402Payment · Blocky402 settle",
   },
 ] as const;
 
-function SlideStack({ step }: SlideProps) {
-  const active = step > 0 ? LAYERS[Math.min(step, LAYERS.length) - 1] : null;
+function SlideStack(_p: SlideProps) {
   return (
     <>
       <Viewfinder />
@@ -599,15 +288,14 @@ function SlideStack({ step }: SlideProps) {
           Not one proof. A stack of proofs.
         </h2>
         <p className="lede enter-up d2 stack-lede">
-          After you know silicon → PUF → nonce, here is every layer that still
-          has to pass — each blocks a different cheat.
+          Silicon → PUF → nonce is the core. Every layer below still has to pass
+          — each blocks a different cheat. Live demo walks the path.
         </p>
         <div className="stack stack-grid">
           {LAYERS.map((item, i) => (
-            <Frag
+            <div
               key={item.name}
-              show={step > i}
-              className={`layer layer-card${step === i + 1 ? " layer-hot" : ""}`}
+              className="layer layer-card frag is-shown enter-up"
             >
               <div className="layer-ico" aria-hidden>
                 <img src={`${A}/icons/${item.icon}.svg`} alt="" />
@@ -617,28 +305,8 @@ function SlideStack({ step }: SlideProps) {
                 <div className="ldesc">{item.desc}</div>
               </div>
               <div className="layer-idx">{String(i + 1).padStart(2, "0")}</div>
-            </Frag>
+            </div>
           ))}
-        </div>
-        <div
-          className={`pipe-cue stack-cue${active ? " is-on" : ""}`}
-          aria-live="polite"
-        >
-          {active ? (
-            <>
-              <span className="pipe-cue-num">
-                {String(Math.min(step, LAYERS.length)).padStart(2, "0")}
-              </span>
-              <div className="pipe-cue-body">
-                <span className="pipe-cue-say">{active.say}</span>
-                <span className="pipe-cue-fns">{active.fns}</span>
-              </div>
-            </>
-          ) : (
-            <span className="pipe-cue-say dim">
-              Tap forward — each layer names the defense function.
-            </span>
-          )}
         </div>
       </div>
     </>
@@ -873,19 +541,24 @@ const SLIDES: {
   render: (p: SlideProps) => ReactNode;
 }[] = [
   { id: "hero", steps: 0, render: (p) => <SlideHero {...p} /> },
-  { id: "problem", steps: 7, render: (p) => <SlideProblem {...p} /> },
-  { id: "why", steps: 11, render: (p) => <SlideWhy {...p} /> },
-  { id: "insight", steps: 0, render: (p) => <SlideInsight {...p} /> },
-  { id: "solution", steps: 3, render: (p) => <SlideSolution {...p} /> },
-  { id: "pipeline", steps: 7, render: (p) => <SlidePipeline {...p} /> },
-  { id: "stack", steps: 8, render: (p) => <SlideStack {...p} /> },
+  { id: "problem", steps: 0, render: (p) => <SlideProblem {...p} /> },
+  { id: "solution", steps: 0, render: (p) => <SlideSolution {...p} /> },
+  { id: "stack", steps: 0, render: (p) => <SlideStack {...p} /> },
   { id: "who", steps: 0, bleed: true, render: (p) => <SlideWho {...p} /> },
   { id: "shipped", steps: 0, render: (p) => <SlideShipped {...p} /> },
   { id: "close", steps: 0, bleed: true, render: (p) => <SlideClose {...p} /> },
 ];
 
+function initialSlideIndex() {
+  if (typeof window === "undefined") return 0;
+  const m = window.location.hash.match(/^#\/(\d+)/);
+  if (!m) return 0;
+  const n = Number(m[1]);
+  return n >= 0 && n < SLIDES.length ? n : 0;
+}
+
 export default function PitchDeck() {
-  const [index, setIndex] = useState(0);
+  const [index, setIndex] = useState(initialSlideIndex);
   const [step, setStep] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [wantFullscreen, setWantFullscreen] = useState(false);
@@ -984,14 +657,6 @@ export default function PitchDeck() {
       history.replaceState(null, "", next);
     }
   }, [index]);
-
-  useEffect(() => {
-    const m = window.location.hash.match(/^#\/(\d+)/);
-    if (m) {
-      const n = Number(m[1]);
-      if (n >= 0 && n < SLIDES.length) setIndex(n);
-    }
-  }, []);
 
   const onTouchStart = (e: React.TouchEvent) => {
     touchX.current = e.changedTouches[0]?.clientX ?? null;
